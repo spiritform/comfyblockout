@@ -2072,6 +2072,10 @@ if (IS_PREVIEW) {
 	// async loadScene/deserializeScene and overwrite the editor's imports with [].
 	transform.detach();
 	transform.enabled = false;
+	transformHelper.visible = false;
+	// Override attach to a no-op — addPrimitive → select(mesh) during scene restore would
+	// otherwise re-attach the gizmo. detach() alone gets undone by the next select().
+	transform.attach = () => transform;
 	saveScene = async () => {};
 	if (typeof window.saveSceneDebounced === "function") window.saveSceneDebounced = () => {};
 	canvas.style.cursor = "grab";
@@ -2084,13 +2088,11 @@ if (IS_PREVIEW) {
 	const pvRec = document.getElementById("pv-rec");
 	const pvTime = document.getElementById("pv-time");
 	let cleanView = false;
-	const pvCleanIcon = pvClean.querySelector(".pv-icon");
 	pvClean.addEventListener("click", () => {
 		cleanView = !cleanView;
 		grid.visible = !cleanView;
 		aspectFrame.style.display = cleanView ? "none" : "block";
 		pvClean.classList.toggle("active", cleanView);
-		pvCleanIcon.src = `/extensions/ComfyBlockout/icons/${cleanView ? "clean-off" : "clean"}.png`;
 	});
 	pvRewind.addEventListener("click", rewindTransport);
 	pvPlay.addEventListener("click", () => isPlayingPreview ? stopPreview() : playPreview());
