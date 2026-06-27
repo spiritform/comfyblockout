@@ -26,7 +26,7 @@
 	#renderCanvas { width: 100%; height: 100%; display: block; }
 
 	#timeline {
-		flex: 0 0 auto; height: 56px;
+		flex: 0 0 auto; height: 60px;
 		background: rgba(14,14,18,0.96);
 		border-top: 1px solid rgba(255,255,255,0.06);
 		display: flex; align-items: center; gap: 8px; padding: 8px 14px;
@@ -88,7 +88,7 @@
 	@keyframes pulse { 50% { opacity: 0.6; } }
 
 	#tl-scrub-wrap {
-		flex: 1; position: relative; height: 40px;
+		flex: 1; position: relative; height: 36px;
 		background: rgba(0,0,0,0.3); border-radius: 6px;
 		overflow: visible; cursor: pointer;
 	}
@@ -101,14 +101,18 @@
 		border-radius: 6px;
 	}
 	#tl-playhead {
-		position: absolute; top: -4px; bottom: -4px; width: 2px;
-		background: #ffb454; box-shadow: 0 0 8px rgba(255,180,80,0.7);
-		pointer-events: none;
+		position: absolute; top: 0; bottom: 0; width: 5px;
+		background: #ffd700; box-shadow: 0 0 4px rgba(255,215,0,0.6);
+		pointer-events: none; z-index: 10;
+		transform: translateX(-50%);
 	}
-	#tl-playhead::before {
-		content: ""; position: absolute; left: -5px; top: -4px;
-		width: 12px; height: 8px; background: #ffb454; border-radius: 2px 2px 0 0;
+	/* Invisible wide hit zone for easy grabbing of the yellow line */
+	#tl-playhead .head {
+		position: absolute; left: -4px; top: 0; bottom: 0;
+		width: 13px; background: transparent;
+		cursor: ew-resize; pointer-events: auto;
 	}
+	#tl-scrub-wrap:hover { cursor: ew-resize; }
 	.tl-key {
 		position: absolute; top: 50%;
 		width: 12px; height: 12px;
@@ -120,6 +124,23 @@
 	.tl-key:hover { background: #80b4ff; }
 	.tl-key.selected { background: #ffb454; box-shadow: 0 0 10px rgba(255,180,80,0.8); border-color: #fff; }
 	.tl-key.dragging { cursor: grabbing; }
+
+	/* Dim the bar OUTSIDE the trim region so the selected range pops */
+	#tl-trim-pre, #tl-trim-post {
+		position: absolute; top: 0; bottom: 0;
+		background: rgba(0, 0, 0, 0.55);
+		pointer-events: none; z-index: 2;
+	}
+	#tl-trim-pre { left: 0; }
+	#tl-trim-post { right: 0; }
+	.tl-trim-handle {
+		position: absolute; top: 0; bottom: 0; width: 5px;
+		background: #ff8c1a;
+		cursor: ew-resize; z-index: 6;
+		transform: translateX(-50%);
+	}
+	.tl-trim-handle:hover { background: #ffb454; box-shadow: 0 0 6px rgba(255,180,80,0.7); }
+	.tl-trim-handle.dragging { background: #ffd28a; }
 
 	#tl-time {
 		font-size: 10px; color: rgba(255,255,255,0.45);
@@ -466,10 +487,15 @@
 			<button class="tl-btn" id="tl-rewind" title="Rewind to start">◀◀</button>
 			<button class="tl-btn" id="tl-addkey" title="Add keyframe at playhead">+</button>
 			<button class="tl-btn" id="tl-clearkey" title="Delete selected keyframe (or all if none selected)">✕</button>
+			<div style="width: 12px"></div>
 			<div id="tl-scrub-wrap">
 				<div id="tl-ruler"></div>
+				<div id="tl-trim-pre" style="width:0%"></div>
+				<div id="tl-trim-post" style="width:0%"></div>
 				<div id="tl-keys"></div>
-				<div id="tl-playhead" style="left:0"></div>
+				<div id="tl-playhead" style="left:0"><div class="head"></div></div>
+				<div class="tl-trim-handle" id="tl-trim-start" style="left:0%" title="Trim start"></div>
+				<div class="tl-trim-handle" id="tl-trim-end" style="left:100%" title="Trim end"></div>
 			</div>
 			<span id="tl-time">0.00s / 4.00s</span>
 		</div>
@@ -1512,10 +1538,66 @@ let keyframes = [];
 let playhead = 0;
 let selectedKey = null;
 let isPlayingPreview = false;
+let trimStart = 0;
+let trimEnd = 1;
+let restoringScene = false;
 
 const tlScrub = document.getElementById("tl-scrub-wrap");
 const tlPlayhead = document.getElementById("tl-playhead");
 const tlKeys = document.getElementById("tl-keys");
+const tlTrimPre = document.getElementById("tl-trim-pre");
+const tlTrimPost = document.getElementById("tl-trim-post");
+const tlTrimStart = document.getElementById("tl-trim-start");
+const tlTrimEnd = document.getElementById("tl-trim-end");
+
+function refreshTrimUI() {
+	tlTrimStart.style.left = `${trimStart * 100}%`;
+	tlTrimEnd.style.left = `${trimEnd * 100}%`;
+	tlTrimPre.style.width = `${trimStart * 100}%`;
+	tlTrimPost.style.width = `${(1 - trimEnd) * 100}%`;
+}
+
+function clampPlayheadToTrim(t) {
+	const rect = tlScrub.getBoundingClientRect();
+	const gap = rect.width > 0 ? 8 / rect.width : 0.01;
+	return Math.max(trimStart + gap, Math.min(trimEnd - gap, t));
+}
+
+function makeTrimHandle(el, getter, setter, minGap) {
+	el.addEventListener("pointerdown", e => {
+		e.stopPropagation();
+		const rect = tlScrub.getBoundingClientRect();
+		el.classList.add("dragging");
+		el.setPointerCapture(e.pointerId);
+		const onMove = ev => {
+			const t = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+			setter(t);
+			refreshTrimUI();
+		};
+		const onUp = () => {
+			el.releasePointerCapture(e.pointerId);
+			el.classList.remove("dragging");
+			el.removeEventListener("pointermove", onMove);
+			el.removeEventListener("pointerup", onUp);
+			saveSceneDebounced?.();
+		};
+		el.addEventListener("pointermove", onMove);
+		el.addEventListener("pointerup", onUp);
+	});
+}
+makeTrimHandle(tlTrimStart,
+	() => trimStart,
+	t => {
+		trimStart = Math.min(t, trimEnd - 0.01);
+		if (playhead < trimStart) setPlayhead(clampPlayheadToTrim(trimStart));
+	});
+makeTrimHandle(tlTrimEnd,
+	() => trimEnd,
+	t => {
+		trimEnd = Math.max(t, trimStart + 0.01);
+		if (playhead > trimEnd) setPlayhead(clampPlayheadToTrim(trimEnd));
+	});
+refreshTrimUI();
 const tlTime = document.getElementById("tl-time");
 const tlAddKey = document.getElementById("tl-addkey");
 const tlClearKey = document.getElementById("tl-clearkey");
@@ -1645,15 +1727,32 @@ tlAddKey.addEventListener("click", addKeyframe);
 tlClearKey.addEventListener("click", deleteKeyframes);
 
 tlScrub.addEventListener("pointerdown", e => {
-	if (e.target !== tlScrub && e.target !== document.getElementById("tl-ruler")) return;
+	// Allow scrub when clicking the timeline bg, ruler, playhead bar, or playhead head.
+	// Keyframe/trim handlers call stopPropagation so their drags don't fall through here.
+	const playheadHead = tlPlayhead.querySelector(".head");
+	const allowed = [tlScrub, document.getElementById("tl-ruler"), tlPlayhead, playheadHead];
+	if (!allowed.includes(e.target)) return;
+	// Any click in the timeline area stops playback and starts scrubbing
+	stopPreview();
 	selectedKey = null;
 	renderKeyframeMarkers();
 	const rect = tlScrub.getBoundingClientRect();
 	const seek = (x) => {
-		const t = Math.max(0, Math.min(1, (x - rect.left) / rect.width));
+		let t = Math.max(0, Math.min(1, (x - rect.left) / rect.width));
+		// Pixel-based gap = half playhead + half trim handle + a few px breathing room
+		const gap = 8 / rect.width;
+		t = Math.max(trimStart + gap, Math.min(trimEnd - gap, t));
 		setPlayhead(t);
 		const s = sampleCameraAt(t);
 		if (s) applyCameraState(s);
+		const seconds = t * currentDuration();
+		for (const m of fbxMixers) {
+			const prev = m.timeScale;
+			m.timeScale = 1;
+			const cur = m.time || 0;
+			m.update(seconds - cur);
+			m.timeScale = prev;
+		}
 	};
 	seek(e.clientX);
 	const onMove = ev => seek(ev.clientX);
@@ -1674,18 +1773,23 @@ async function playPreview() {
 	const hasCameraTween = keyframes.length >= 2;
 	isPlayingPreview = true;
 	tlPlay.classList.add("active");
-	setMixersPlaying(true);
 	const dur = currentDuration() * 1000;
-	const start = performance.now();
+	// Snap mixers to trim-start before play so trimmed FBX previews start at the right pose
+	for (const m of fbxMixers) m.setTime(trimStart * (dur / 1000));
+	setMixersPlaying(true);
+	const startMs = performance.now();
 	while (isPlayingPreview) {
-		const elapsed = performance.now() - start;
-		const t = Math.min(1, elapsed / dur);
+		const elapsed = performance.now() - startMs;
+		// Map real elapsed time into the trim window: [trimStart .. trimEnd]
+		const span = trimEnd - trimStart;
+		const trimT = Math.min(1, elapsed / (dur * span));
+		const t = trimStart + trimT * span;
 		setPlayhead(t);
 		if (hasCameraTween) {
 			const s = sampleCameraAt(t);
 			if (s) applyCameraState(s);
 		}
-		if (t >= 1) break;
+		if (trimT >= 1) break;
 		await new Promise(r => requestAnimationFrame(r));
 	}
 	isPlayingPreview = false;
@@ -1701,11 +1805,12 @@ tlPlay.addEventListener("click", () => isPlayingPreview ? stopPreview() : playPr
 
 function rewindTransport() {
 	stopPreview();
-	setPlayhead(0);
-	for (const m of fbxMixers) m.setTime(0);
-	// Snap camera to first keyframe if any
+	setPlayhead(clampPlayheadToTrim(trimStart));
+	const dur = currentDuration();
+	for (const m of fbxMixers) m.setTime(trimStart * dur);
+	// Snap camera to keyframe at trim start
 	if (keyframes.length) {
-		const s = sampleCameraAt(0);
+		const s = sampleCameraAt(trimStart);
 		if (s) applyCameraState(s);
 	}
 }
@@ -1849,6 +1954,7 @@ function serializeScene() {
 			guides: guidesVisible,
 			bg: bgColorInput.value,
 		},
+		trim: { start: trimStart, end: trimEnd },
 		keyframes: keyframes.map(k => ({
 			t: k.t,
 			pos: k.pos.toArray(),
@@ -1861,6 +1967,8 @@ function serializeScene() {
 
 async function deserializeScene(state) {
 	if (!state) return false;
+	restoringScene = true;
+	try {
 	while (objects.length) deleteObject(objects[0]);
 
 	for (const p of (state.primitives || [])) {
@@ -1936,6 +2044,13 @@ async function deserializeScene(state) {
 			applyBgColor(state.viewport.bg);
 		}
 	}
+	if (state.trim && typeof state.trim.start === "number" && typeof state.trim.end === "number") {
+		trimStart = Math.max(0, Math.min(1, state.trim.start));
+		trimEnd = Math.max(trimStart + 0.01, Math.min(1, state.trim.end));
+		refreshTrimUI();
+		setPlayhead(clampPlayheadToTrim(trimStart));
+	}
+
 	if (Array.isArray(state.keyframes)) {
 		keyframes = state.keyframes.map(k => ({
 			t: k.t,
@@ -1952,10 +2067,17 @@ async function deserializeScene(state) {
 	selected = null;
 	refreshOutliner();
 	return true;
+	} finally {
+		restoringScene = false;
+		// Flush one save with the fully-restored state so the wipe + per-add saves don't leave
+		// the backend with a partial snapshot. saveScene is debounce-safe to call after the gate.
+		try { await saveScene(); } catch {}
+	}
 }
 
 async function saveScene() {
 	if (IS_PREVIEW) return; // preview iframe is read-only — never write scene state
+	if (restoringScene) return; // suppress saves triggered by addPrimitive/deleteObject during restore
 	try {
 		await fetch("/comfyblockout/save_scene", {
 			method: "POST",
@@ -2058,8 +2180,9 @@ async function loadPrompt() {
 (async () => {
 	await loadPrompt();
 	const restored = await loadScene();
-	// In preview mode (in-node iframe) never auto-add a placeholder — only show what the editor saved
-	if (!IS_PREVIEW && (!restored || objects.length === 0)) {
+	// Only seed a default cube when there is NO saved scene at all (brand-new node).
+	// `restored && objects.length===0` is a valid user state (they deleted everything) — don't re-add.
+	if (!IS_PREVIEW && !restored) {
 		const cube = addPrimitive("cube");
 		cube.position.set(0, 0, 0);
 		saveScene();
