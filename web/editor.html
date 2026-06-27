@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <title>ComfyBlockout · 3D Editor Node</title>
 <style>
 	* { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
@@ -201,14 +204,15 @@
 	#aspect-frame.no-guides .v2 { display: none; }
 
 	.bg-row {
-		display: flex; align-items: center; gap: 8px;
-		background: rgba(255,255,255,0.05); border-radius: 6px;
-		padding: 6px 10px; font-size: 11px; color: rgba(255,255,255,0.55);
+		display: flex; align-items: center; justify-content: center; gap: 8px;
+		background: rgba(255,255,255,0.08); border-radius: 6px;
+		padding: 0 10px; font-size: 11px; color: #ccc;
 		cursor: pointer; flex: 1;
 	}
-	.bg-row span { letter-spacing: 0.06em; text-transform: uppercase; font-size: 10px; }
+	.bg-row:hover { background: rgba(255,255,255,0.14); }
+	.bg-row span { font-size: 11px; }
 	.bg-row input[type="color"] {
-		width: 28px; height: 22px; border: none; border-radius: 4px;
+		width: 20px; height: 18px; border: none; border-radius: 3px;
 		background: none; padding: 0; cursor: pointer; flex-shrink: 0;
 	}
 	.bg-row input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
@@ -248,6 +252,7 @@
 		position: fixed; inset: 0; z-index: 300;
 		background: rgba(7, 8, 11, 0.78); backdrop-filter: blur(4px);
 		display: none; align-items: center; justify-content: center;
+		pointer-events: none;
 	}
 	#loading-overlay.active { display: flex; }
 	.load-card {
@@ -255,6 +260,7 @@
 		border: 1px solid rgba(255,255,255,0.08);
 		border-radius: 12px; padding: 28px 36px;
 		text-align: center; max-width: 380px;
+		pointer-events: auto;
 	}
 	.load-spinner {
 		width: 36px; height: 36px; margin: 0 auto 14px;
@@ -293,8 +299,8 @@
 		<div class="section">
 			<div class="section-label">Import</div>
 			<div class="row">
-				<button class="btn" id="import-btn">Drop or browse · GLB · OBJ · PLY · SPLAT</button>
-				<input type="file" id="import-file" accept=".glb,.gltf,.obj,.ply,.splat,.ksplat" hidden multiple>
+				<button class="btn" id="import-btn">Drop or browse · GLB · FBX · OBJ · PLY · SPLAT · SPZ</button>
+				<input type="file" id="import-file" accept=".glb,.gltf,.fbx,.obj,.ply,.splat,.ksplat,.spz" hidden multiple>
 			</div>
 		</div>
 
@@ -339,15 +345,13 @@
 
 		<div class="section">
 			<div class="section-label">Display</div>
-			<div class="row" style="gap:4px;margin-bottom:6px">
-				<button class="btn active" id="toggle-grid">Grid</button>
-				<button class="btn" id="toggle-guides">Guides</button>
-			</div>
-			<div class="row" style="gap:6px;align-items:center">
-				<label class="bg-row">
+			<div class="row" style="gap:4px;align-items:stretch">
+				<label class="bg-row" title="Background color">
 					<span>BG</span>
 					<input type="color" id="bg-color" value="#07080b">
 				</label>
+				<button class="btn active" id="toggle-grid">Grid</button>
+				<button class="btn" id="toggle-guides">Guides</button>
 			</div>
 		</div>
 
@@ -395,8 +399,12 @@
 	<div id="viewport-area">
 		<div id="canvas-wrap">
 			<canvas id="renderCanvas"></canvas>
-			<div id="aspect-frame"><span class="v1"></span><span class="v2"></span><span class="label" id="aspect-label">16:9</span></div>
+			<div id="aspect-frame" class="no-guides"><span class="v1"></span><span class="v2"></span><span class="label" id="aspect-label">16:9</span></div>
 			<div id="status">idle · 0 objects</div>
+			<div id="info-block" style="position:absolute;top:0;left:0;background:rgba(20,20,24,0.85);border:1px solid rgba(255,255,255,0.08);border-radius:0 0 6px 0;z-index:11;display:flex;flex-direction:column;align-items:flex-start">
+				<button id="info-btn" title="Scene info" style="width:24px;height:24px;border:none;background:transparent;color:rgba(255,255,255,0.55);font:11px serif;font-style:italic;font-weight:600;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center">i</button>
+				<div id="debug-hud" style="color:rgba(255,255,255,0.45);font:10px ui-monospace,monospace;padding:0 12px 10px 12px;line-height:1.6;white-space:pre;display:none;min-width:200px"></div>
+			</div>
 		</div>
 		<div id="timeline">
 			<button class="tl-btn rec" id="tl-rec" title="Record (auto-tween if keyframes exist)">●</button>
@@ -415,9 +423,9 @@
 	<script type="importmap">
 	{
 		"imports": {
-			"three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
-			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
-			"@sparkjsdev/spark": "https://esm.sh/@sparkjsdev/spark@0.1.10"
+			"three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+			"@sparkjsdev/spark": "https://esm.sh/@sparkjsdev/spark@2.1.0?external=three"
 		}
 	}
 	</script>
@@ -425,7 +433,7 @@
 	<div id="drop-overlay">
 		<div class="drop-card">
 			<div class="drop-card-icon">▼</div>
-			<div class="drop-card-text">Drop GLB · OBJ · PLY · SPLAT</div>
+			<div class="drop-card-text">Drop GLB · FBX · OBJ · PLY · SPLAT · SPZ</div>
 		</div>
 	</div>
 
@@ -444,6 +452,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
+import { PLYLoader } from "three/addons/loaders/PLYLoader.js";
+import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
 
@@ -468,11 +478,11 @@ renderer.setClearColor(0x07080b);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, vs0.w / vs0.h, 0.1, 1000);
-camera.position.set(5, 4, 7);
+camera.position.set(2.2, 1.6, 2.8);
 
 const orbit = new OrbitControls(camera, canvas);
 orbit.enableDamping = true;
-orbit.target.set(0, 0.5, 0);
+orbit.target.set(0, 0, 0);
 
 const transform = new TransformControls(camera, renderer.domElement);
 transform.addEventListener("dragging-changed", (e) => {
@@ -559,20 +569,21 @@ const primCounters = {};
 
 let gltfLoader = null;
 let objLoader = null;
+let fbxLoader = null;
+let fbxMixers = [];
+let sparkModulePromise = null;
 let sparkRenderer = null;
-let sparkPromise = null;
 
 async function ensureSpark() {
-	if (sparkRenderer) return sparkRenderer;
-	if (!sparkPromise) {
-		sparkPromise = import("@sparkjsdev/spark").then(mod => {
-			sparkRenderer = new mod.SparkRenderer({ renderer });
-			scene.add(sparkRenderer);
-			return { spark: sparkRenderer, SplatMesh: mod.SplatMesh };
-		});
+	// sparkjs v2.x: SparkRenderer must be in the scene (registers splatDefines shader chunks + hooks render pipeline).
+	// SplatMesh instances are added to scene directly, not to SparkRenderer.
+	if (!sparkModulePromise) sparkModulePromise = import("@sparkjsdev/spark");
+	const mod = await sparkModulePromise;
+	if (!sparkRenderer) {
+		sparkRenderer = new mod.SparkRenderer({ renderer });
+		scene.add(sparkRenderer);
 	}
-	const { spark, SplatMesh } = await sparkPromise;
-	return { spark, SplatMesh };
+	return mod;
 }
 
 function nextName(baseKind) {
@@ -586,97 +597,180 @@ function registerImported(obj, kind, filename) {
 	obj.userData.filename = filename;
 	obj.name = filename ? filename.replace(/\.[^.]+$/, "") : nextName(kind);
 	objects.push(obj);
-	select(obj);
+	if (kind !== "splat") select(obj);
 	refreshOutliner();
 	updateStatus();
 }
 
-async function loadGLB(file) {
-	console.log(`[Comfy3D] loadGLB START — ${file.name} (${(file.size/1024).toFixed(1)} KB)`);
+function newAssetId() {
+	return (crypto.randomUUID?.() || `a_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`).replace(/-/g, "");
+}
+
+async function uploadAsset(filename, arrayBuffer) {
+	const ext = (filename.split(".").pop() || "bin").toLowerCase();
+	const assetId = newAssetId();
+	const fd = new FormData();
+	fd.append("node_id", NODE_ID);
+	fd.append("asset_id", assetId);
+	fd.append("ext", ext);
+	fd.append("file", new Blob([arrayBuffer], { type: "application/octet-stream" }), filename);
+	const r = await fetch("/comfyblockout/save_asset", { method: "POST", body: fd });
+	const j = await r.json();
+	if (!j.success) throw new Error(j.error || "asset upload failed");
+	return { assetId, ext };
+}
+
+function applySavedTransform(obj, t) {
+	if (!t) return;
+	if (t.position) obj.position.fromArray(t.position);
+	if (t.rotation) obj.rotation.set(t.rotation[0], t.rotation[1], t.rotation[2]);
+	if (t.scale) obj.scale.fromArray(t.scale);
+	if (t.quaternion) obj.quaternion.fromArray(t.quaternion);
+}
+
+async function loadGLB(arrayBuffer, filename, opts = {}) {
+	console.log(`[ComfyBlockout] loadGLB START — ${filename} (${(arrayBuffer.byteLength/1024).toFixed(1)} KB)`);
 	if (!gltfLoader) gltfLoader = new GLTFLoader();
-	const buf = await file.arrayBuffer();
-	updateStatus(`loading ${file.name}…`);
-	try {
-		gltfLoader.parse(buf, "", (gltf) => {
-			console.log("[Comfy3D] GLB parsed:", gltf);
-			const root = gltf.scene;
-			root.traverse(c => {
-				if (c.isMesh) console.log("  mesh:", c.name, "verts:", c.geometry?.attributes?.position?.count);
+	updateStatus(`loading ${filename}…`);
+	return new Promise((resolve) => {
+		try {
+			gltfLoader.parse(arrayBuffer, "", (gltf) => {
+				const root = gltf.scene;
+				if (!opts.restoring) {
+					const box = new THREE.Box3().setFromObject(root);
+					const size = box.getSize(new THREE.Vector3()).length();
+					if (size > 0) {
+						const scale = 2 / size;
+						root.scale.setScalar(scale);
+						root.position.sub(box.getCenter(new THREE.Vector3()).multiplyScalar(scale));
+						root.position.y = 0.5;
+					}
+				}
+				applySavedTransform(root, opts.transform);
+				scene.add(root);
+				if (opts.assetId) root.userData.assetId = opts.assetId;
+				registerImported(root, "glb", filename);
+				if (opts.savedName) root.name = opts.savedName;
+				updateStatus(`GLB loaded · ${filename}`);
+				resolve(root);
+			}, (err) => {
+				console.error("[ComfyBlockout] GLB parse failed:", err);
+				updateStatus(`GLB load failed: ${err?.message || err}`);
+				resolve(null);
 			});
+		} catch (e) {
+			console.error("[ComfyBlockout] loadGLB threw:", e);
+			updateStatus(`GLB load threw: ${e.message}`);
+			resolve(null);
+		}
+	});
+}
+
+async function loadFBX(arrayBuffer, filename, opts = {}) {
+	if (!fbxLoader) fbxLoader = new FBXLoader();
+	updateStatus(`loading FBX ${filename}…`);
+	try {
+		const root = fbxLoader.parse(arrayBuffer, "");
+		// FBX often exports in cm; normalize to a sane size on first import
+		if (!opts.restoring) {
 			const box = new THREE.Box3().setFromObject(root);
 			const size = box.getSize(new THREE.Vector3()).length();
-			console.log("[Comfy3D] GLB bbox size:", size);
 			if (size > 0) {
 				const scale = 2 / size;
 				root.scale.setScalar(scale);
 				root.position.sub(box.getCenter(new THREE.Vector3()).multiplyScalar(scale));
 				root.position.y = 0.5;
 			}
-			scene.add(root);
-			console.log("[Comfy3D] GLB added to scene at position:", root.position);
-			registerImported(root, "glb", file.name);
-			updateStatus(`GLB loaded · ${file.name}`);
-		}, (err) => {
-			console.error("[Comfy3D] GLB parse failed:", err);
-			updateStatus(`GLB load failed: ${err?.message || err}`);
-		});
+		}
+		applySavedTransform(root, opts.transform);
+		// If the FBX shipped animations, run the first one
+		if (root.animations?.length) {
+			const mixer = new THREE.AnimationMixer(root);
+			mixer.clipAction(root.animations[0]).play();
+			fbxMixers.push(mixer);
+			root.userData.mixer = mixer;
+		}
+		scene.add(root);
+		if (opts.assetId) root.userData.assetId = opts.assetId;
+		registerImported(root, "fbx", filename);
+		if (opts.savedName) root.name = opts.savedName;
+		updateStatus(`FBX loaded · ${filename}`);
+		return root;
 	} catch (e) {
-		console.error("[Comfy3D] loadGLB threw:", e);
-		updateStatus(`GLB load threw: ${e.message}`);
+		console.error("[ComfyBlockout] loadFBX failed:", e);
+		updateStatus(`FBX load failed: ${e.message}`);
+		return null;
 	}
 }
 
-async function loadOBJ(file) {
+async function loadOBJ(arrayBuffer, filename, opts = {}) {
 	if (!objLoader) objLoader = new OBJLoader();
-	const text = await file.text();
+	const text = new TextDecoder().decode(arrayBuffer);
 	const root = objLoader.parse(text);
 	root.traverse(c => {
 		if (c.isMesh && (!c.material || c.material.type === "MeshBasicMaterial")) {
 			c.material = new THREE.MeshStandardMaterial({ color: 0x999999, roughness: 0.7 });
 		}
 	});
-	const box = new THREE.Box3().setFromObject(root);
-	const size = box.getSize(new THREE.Vector3()).length();
-	if (size > 0) {
-		const scale = 2 / size;
-		root.scale.setScalar(scale);
-		root.position.sub(box.getCenter(new THREE.Vector3()).multiplyScalar(scale));
-		root.position.y = 0.5;
+	if (!opts.restoring) {
+		const box = new THREE.Box3().setFromObject(root);
+		const size = box.getSize(new THREE.Vector3()).length();
+		if (size > 0) {
+			const scale = 2 / size;
+			root.scale.setScalar(scale);
+			root.position.sub(box.getCenter(new THREE.Vector3()).multiplyScalar(scale));
+			root.position.y = 0.5;
+		}
 	}
+	applySavedTransform(root, opts.transform);
 	scene.add(root);
-	registerImported(root, "obj", file.name);
+	if (opts.assetId) root.userData.assetId = opts.assetId;
+	registerImported(root, "obj", filename);
+	if (opts.savedName) root.name = opts.savedName;
+	return root;
 }
 
-function frameSplat(mesh) {
-	let cx = 0, cy = 0, cz = 0, size = 0;
+const SPLAT_TARGET_SIZE = 4;
 
-	const tryBox = new THREE.Box3().setFromObject(mesh);
-	if (isFinite(tryBox.min.x) && isFinite(tryBox.max.x) && tryBox.max.x > tryBox.min.x) {
-		const c = tryBox.getCenter(new THREE.Vector3());
-		const s = tryBox.getSize(new THREE.Vector3());
-		cx = c.x; cy = c.y; cz = c.z;
-		size = Math.max(s.x, s.y, s.z);
-		console.log("[Comfy3D] splat bbox via Box3:", { center: [cx, cy, cz], size });
-	} else if (mesh.bounds && typeof mesh.bounds.center === "function") {
-		const c = mesh.bounds.center();
-		const s = mesh.bounds.size();
-		cx = c.x; cy = c.y; cz = c.z;
-		size = Math.max(Math.abs(s.x), Math.abs(s.y), Math.abs(s.z));
-		console.log("[Comfy3D] splat bbox via mesh.bounds:", { center: [cx, cy, cz], size });
-	} else {
-		console.warn("[Comfy3D] splat bounds unknown — using safe default 50-unit framing");
-		size = 50;
+function readBounds(obj) {
+	const splat = obj.userData?.splat || (obj.bounds ? obj : null);
+	if (splat && splat.bounds) {
+		try {
+			const c = splat.bounds.center();
+			const s = splat.bounds.size();
+			if (isFinite(c.x) && isFinite(s.x)) {
+				return { cx: c.x, cy: c.y, cz: c.z, size: Math.max(Math.abs(s.x), Math.abs(s.y), Math.abs(s.z)), src: "gsplat" };
+			}
+		} catch (e) { console.warn("[Comfy3D] gsplat bounds read failed:", e); }
 	}
+	const box = new THREE.Box3().setFromObject(obj);
+	if (isFinite(box.min.x) && isFinite(box.max.x) && box.max.x > box.min.x) {
+		const c = box.getCenter(new THREE.Vector3());
+		const s = box.getSize(new THREE.Vector3());
+		return { cx: c.x, cy: c.y, cz: c.z, size: Math.max(s.x, s.y, s.z), src: "Box3" };
+	}
+	return null;
+}
 
-	if (cx !== 0 || cy !== 0 || cz !== 0) mesh.position.sub(new THREE.Vector3(cx, cy, cz));
 
-	const dist = Math.max(size * 1.8, 15);
-	camera.position.set(dist, dist * 0.6, dist);
+function frameSplat(splatMesh) {
+	if (!splatMesh) return;
+
+	const bbox = splatMesh.getBoundingBox ? splatMesh.getBoundingBox(true) : new THREE.Box3().setFromObject(splatMesh);
+	const rawCenter = bbox.getCenter(new THREE.Vector3());
+	const rawSize = bbox.getSize(new THREE.Vector3());
+	const maxDim = Math.max(rawSize.x, rawSize.y, rawSize.z);
+	const baseScale = (maxDim > 0 && isFinite(maxDim)) ? SPLAT_TARGET_SIZE / maxDim : 1;
+	console.log(`[Comfy3D] splat bbox: center=(${rawCenter.x.toFixed(2)},${rawCenter.y.toFixed(2)},${rawCenter.z.toFixed(2)}) size=${maxDim.toFixed(2)} → baseScale ${baseScale.toFixed(4)}`);
+
+	splatMesh.scale.set(baseScale, baseScale, baseScale);
+	const rotatedCenter = rawCenter.clone().applyQuaternion(splatMesh.quaternion).multiplyScalar(baseScale);
+	splatMesh.position.set(-rotatedCenter.x, -rotatedCenter.y, -rotatedCenter.z);
+
+	camera.position.set(2.2, 1.6, 2.8);
 	orbit.target.set(0, 0, 0);
-	camera.near = Math.max(0.01, dist / 500);
-	camera.far = Math.max(2000, dist * 100);
 	camera.updateProjectionMatrix();
-	console.log("[Comfy3D] camera placed at distance", dist, "near", camera.near, "far", camera.far);
+	orbit.enabled = true;
 }
 
 const loadingOverlay = document.getElementById("loading-overlay");
@@ -701,47 +795,139 @@ function hideLoading() {
 document.getElementById("load-cancel").addEventListener("click", hideLoading);
 const nextPaint = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-async function loadSplat(file) {
-	const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-	console.log(`[Comfy3D] loadSplat START — ${file.name} (${sizeMB} MB)`);
-	updateStatus(`loading splat ${file.name} (${sizeMB} MB)…`);
-	showLoading(`Loading splat · ${sizeMB} MB`, `Parsing ${file.name}. Large splats can pause the browser 20–60s while gaussians upload to GPU.`);
+async function loadSplat(arrayBuffer, filename, opts = {}) {
+	const sizeMB = (arrayBuffer.byteLength / 1024 / 1024).toFixed(1);
+	console.log(`[ComfyBlockout] loadSplat START — ${filename} (${sizeMB} MB)`);
+	updateStatus(`loading splat ${filename} (${sizeMB} MB)…`);
+	showLoading(`Loading splat · ${sizeMB} MB`, `Parsing ${filename}.`);
 	await nextPaint();
+	let loaded = false;
+	const failTimer = setTimeout(() => {
+		if (loaded) return;
+		console.error(`[ComfyBlockout] splat ${filename} did not fire onLoad within 30s — likely unsupported format / bad magic bytes`);
+		updateStatus(`splat load timed out · ${filename}`);
+		hideLoading();
+	}, 30000);
 	try {
-		const { spark, SplatMesh } = await ensureSpark();
-		console.log("[Comfy3D] spark renderer ready");
-		const bytes = new Uint8Array(await file.arrayBuffer());
-		console.log(`[Comfy3D] read ${bytes.length} bytes into buffer, parsing…`);
-		await nextPaint();
-		const mesh = new SplatMesh({
-			fileBytes: bytes,
+		const { SplatMesh } = await ensureSpark();
+
+		const splatMesh = new SplatMesh({
+			fileBytes: new Uint8Array(arrayBuffer),
+			fileName: filename,
 			onLoad: () => {
-				console.log("[Comfy3D] splat onLoad fired. mesh:", mesh);
-				console.log("[Comfy3D] mesh.position:", mesh.position, "rotation:", mesh.rotation, "scale:", mesh.scale);
-				console.log("[Comfy3D] mesh.bounds:", mesh.bounds);
-				// flip X by Pi (Y-down → Y-up) — matches sharpsauce default for splats from training pipelines
-				mesh.rotation.x = Math.PI;
-				frameSplat(mesh);
-				updateStatus(`splat loaded · ${file.name}`);
+				loaded = true;
+				clearTimeout(failTimer);
+				splatMesh.userData.pickSphere = computeSplatPickSphere(splatMesh);
+				updateStatus(`splat loaded · ${filename}`);
 				hideLoading();
 			},
 		});
-		spark.add(mesh);
-		console.log("[Comfy3D] mesh added to spark, registering in outliner");
-		registerImported(mesh, "splat", file.name);
+		// OpenCV → OpenGL: 180° rotation around X (gaussian-splat captures are Y-down by convention)
+		if (!opts.restoring) splatMesh.quaternion.set(1, 0, 0, 0);
+		splatMesh.userData.splatMesh = splatMesh;
+		splatMesh.userData.pickSphere = new THREE.Sphere(new THREE.Vector3(), 1.5);
+		applySavedTransform(splatMesh, opts.transform);
+		scene.add(splatMesh);
+
+		if (opts.assetId) splatMesh.userData.assetId = opts.assetId;
+		registerImported(splatMesh, "splat", filename);
+		if (opts.savedName) splatMesh.name = opts.savedName;
+		return splatMesh;
 	} catch (e) {
-		console.error("[Comfy3D] Splat load failed:", e);
+		clearTimeout(failTimer);
+		console.error("[ComfyBlockout] Splat load failed:", e);
 		updateStatus(`splat load failed: ${e.message}`);
 		hideLoading();
+		return null;
 	}
 }
 
-async function loadFile(file) {
-	const ext = (file.name.split(".").pop() || "").toLowerCase();
-	if (ext === "glb" || ext === "gltf") return loadGLB(file);
-	if (ext === "obj") return loadOBJ(file);
-	if (ext === "ply" || ext === "splat" || ext === "ksplat") return loadSplat(file);
+function computeSplatPickSphere(splatMesh) {
+	// SplatMesh has no triangle geometry; build a click-test sphere from whatever bounds API works.
+	try {
+		if (typeof splatMesh.getBoundingBox === "function") {
+			const bbox = splatMesh.getBoundingBox(true);
+			if (bbox && isFinite(bbox.min.x) && bbox.max.x > bbox.min.x) {
+				const c = bbox.getCenter(new THREE.Vector3());
+				const s = bbox.getSize(new THREE.Vector3());
+				return new THREE.Sphere(c, Math.max(s.x, s.y, s.z) * 0.6);
+			}
+		}
+	} catch (e) { console.warn("[ComfyBlockout] getBoundingBox failed:", e); }
+	return new THREE.Sphere(new THREE.Vector3(), 1.5);
+}
+
+function sniffPlyKindFromBytes(arrayBuffer) {
+	const head = new TextDecoder().decode(new Uint8Array(arrayBuffer, 0, Math.min(arrayBuffer.byteLength, 4096)));
+	const endIdx = head.indexOf("end_header");
+	const header = endIdx >= 0 ? head.slice(0, endIdx) : head;
+	if (/\bproperty\s+\w+\s+(f_dc_0|scale_0|rot_0|opacity)\b/.test(header)) return "splat";
+	if (/\belement\s+face\b/.test(header)) return "mesh";
+	return "mesh";
+}
+
+async function loadPlyMesh(arrayBuffer, filename, opts = {}) {
+	updateStatus(`loading mesh ply ${filename}…`);
+	try {
+		const loader = new PLYLoader();
+		const geom = loader.parse(arrayBuffer);
+		geom.computeVertexNormals?.();
+		let obj;
+		if (geom.index || geom.attributes.normal) {
+			const mat = new THREE.MeshStandardMaterial({
+				color: 0xbfc6d4, roughness: 0.7, metalness: 0.05,
+				vertexColors: !!geom.attributes.color,
+			});
+			obj = new THREE.Mesh(geom, mat);
+		} else {
+			const mat = new THREE.PointsMaterial({
+				size: 0.01, vertexColors: !!geom.attributes.color,
+				color: geom.attributes.color ? 0xffffff : 0xbfc6d4,
+				sizeAttenuation: true,
+			});
+			obj = new THREE.Points(geom, mat);
+		}
+		applySavedTransform(obj, opts.transform);
+		scene.add(obj);
+		if (opts.assetId) obj.userData.assetId = opts.assetId;
+		registerImported(obj, "ply", filename);
+		if (opts.savedName) obj.name = opts.savedName;
+		updateStatus(`mesh ply loaded · ${filename}`);
+		return obj;
+	} catch (e) {
+		console.error("[ComfyBlockout] mesh PLY load failed:", e);
+		updateStatus(`mesh ply load failed: ${e.message}`);
+		return null;
+	}
+}
+
+async function loadFromBytes(arrayBuffer, filename, opts = {}) {
+	const ext = (filename.split(".").pop() || "").toLowerCase();
+	if (ext === "glb" || ext === "gltf") return loadGLB(arrayBuffer, filename, opts);
+	if (ext === "fbx") return loadFBX(arrayBuffer, filename, opts);
+	if (ext === "obj") return loadOBJ(arrayBuffer, filename, opts);
+	if (ext === "splat" || ext === "ksplat" || ext === "spz") return loadSplat(arrayBuffer, filename, opts);
+	if (ext === "ply") {
+		const kind = sniffPlyKindFromBytes(arrayBuffer);
+		console.log(`[ComfyBlockout] ${filename} sniffed as ${kind} PLY`);
+		return kind === "splat" ? loadSplat(arrayBuffer, filename, opts) : loadPlyMesh(arrayBuffer, filename, opts);
+	}
 	updateStatus(`unsupported: .${ext}`);
+	return null;
+}
+
+async function loadFile(file) {
+	const arrayBuffer = await file.arrayBuffer();
+	const obj = await loadFromBytes(arrayBuffer, file.name);
+	if (!obj) return;
+	// Persist the asset so deserializeScene can replay it on reopen
+	try {
+		const { assetId } = await uploadAsset(file.name, arrayBuffer);
+		obj.userData.assetId = assetId;
+		saveScene?.();
+	} catch (e) {
+		console.warn("[ComfyBlockout] asset upload failed; object won't persist:", e);
+	}
 }
 
 function deleteObject(obj) {
@@ -750,8 +936,14 @@ function deleteObject(obj) {
 		transform.detach();
 		selected = null;
 	}
-	if (obj.userData.primKind === "splat" && sparkRenderer) {
-		sparkRenderer.remove(obj);
+	if (obj.userData.mixer) {
+		const idx = fbxMixers.indexOf(obj.userData.mixer);
+		if (idx >= 0) fbxMixers.splice(idx, 1);
+		obj.userData.mixer.stopAllAction();
+	}
+	if (obj.userData.primKind === "splat") {
+		scene.remove(obj);
+		obj.userData.splatMesh?.dispose?.();
 	} else {
 		scene.remove(obj);
 		obj.traverse?.(c => {
@@ -848,12 +1040,29 @@ canvas.addEventListener("pointerup", e => {
 	ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
 	ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 	raycaster.setFromCamera(ndc, camera);
-	const selectable = objects.filter(o => o.userData.primKind !== "splat" && o.visible !== false);
-	const hits = raycaster.intersectObjects(selectable, true);
-	if (hits.length) {
-		let root = hits[0].object;
+	const meshHits = raycaster.intersectObjects(
+		objects.filter(o => o.userData.primKind !== "splat" && o.visible !== false),
+		true,
+	);
+	const meshHit = meshHits[0] || null;
+	// Splats: ray-vs-bounding-sphere since they have no triangle geometry
+	let splatHit = null, splatHitDist = Infinity;
+	const tmpVec = new THREE.Vector3();
+	for (const o of objects) {
+		if (o.userData.primKind !== "splat" || o.visible === false || !o.userData.pickSphere) continue;
+		o.updateMatrixWorld();
+		const worldSphere = o.userData.pickSphere.clone().applyMatrix4(o.matrixWorld);
+		if (raycaster.ray.intersectSphere(worldSphere, tmpVec)) {
+			const d = tmpVec.distanceTo(camera.position);
+			if (d < splatHitDist) { splatHitDist = d; splatHit = o; }
+		}
+	}
+	if (meshHit && (!splatHit || meshHit.distance < splatHitDist)) {
+		let root = meshHit.object;
 		while (root && !objects.includes(root)) root = root.parent;
 		if (root) select(root);
+	} else if (splatHit) {
+		select(splatHit);
 	} else {
 		select(null);
 	}
@@ -970,7 +1179,6 @@ gridToggle.addEventListener("click", () => {
 
 const guidesToggle = document.getElementById("toggle-guides");
 let guidesVisible = false;
-aspectFrame.classList.add("no-guides");
 guidesToggle.addEventListener("click", () => {
 	guidesVisible = !guidesVisible;
 	guidesToggle.classList.toggle("active", guidesVisible);
@@ -987,9 +1195,18 @@ bgColorInput.addEventListener("input", e => applyBgColor(e.target.value));
 bgColorInput.addEventListener("change", () => saveScene?.());
 
 function frameScene() {
-	if (objects.length === 0) return;
+	const targets = selected ? [selected] : objects;
+	if (targets.length === 0) return;
 	const box = new THREE.Box3();
-	for (const o of objects) box.expandByObject(o);
+	for (const o of targets) {
+		if (o.userData.primKind === "splat") {
+			const b = readBounds(o);
+			if (b) box.expandByPoint(new THREE.Vector3(b.cx - b.size / 2, b.cy - b.size / 2, b.cz - b.size / 2))
+				.expandByPoint(new THREE.Vector3(b.cx + b.size / 2, b.cy + b.size / 2, b.cz + b.size / 2));
+		} else {
+			box.expandByObject(o);
+		}
+	}
 	if (!isFinite(box.min.x)) return;
 	const center = box.getCenter(new THREE.Vector3());
 	const size = box.getSize(new THREE.Vector3()).length() || 4;
@@ -1074,6 +1291,7 @@ window.addEventListener("keydown", (e) => {
 	else if (e.key === "e") transform.setMode("rotate");
 	else if (e.key === "r") transform.setMode("scale");
 	else if (e.key === "f" || e.key === "F") frameScene();
+	else if (e.key === "Home") { camera.position.set(2.2, 1.6, 2.8); orbit.target.set(0, 0, 0); camera.updateProjectionMatrix(); }
 	else if (e.key === "Delete" || e.key === "Backspace") {
 		if (selectedKey) deleteKeyframes();
 		else deleteObject(selected);
@@ -1081,14 +1299,19 @@ window.addEventListener("keydown", (e) => {
 	else if (e.key === "d" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); duplicateObject(selected); }
 });
 
+let resizeRaf = 0;
 function handleResize() {
-	const vs = viewportSize();
-	camera.aspect = vs.w / vs.h;
-	camera.updateProjectionMatrix();
-	renderer.setSize(vs.w, vs.h, false);
-	updateAspectFrame();
+	if (resizeRaf) return;
+	resizeRaf = requestAnimationFrame(() => {
+		resizeRaf = 0;
+		const vs = viewportSize();
+		if (vs.w < 1 || vs.h < 1) return; // canvasWrap mid-layout — skip to avoid 0-size render
+		camera.aspect = vs.w / vs.h;
+		camera.updateProjectionMatrix();
+		renderer.setSize(vs.w, vs.h, false);
+		updateAspectFrame();
+	});
 }
-window.addEventListener("resize", handleResize);
 new ResizeObserver(handleResize).observe(canvasWrap);
 
 const dropOverlay = document.getElementById("drop-overlay");
@@ -1121,16 +1344,62 @@ importInput.addEventListener("change", async e => {
 });
 
 let renderErrorCount = 0;
+let lastRenderError = "";
+const debugHud = document.getElementById("debug-hud");
+const infoBtn = document.getElementById("info-btn");
+let infoOpen = false;
+infoBtn.addEventListener("click", () => {
+	infoOpen = !infoOpen;
+	debugHud.style.display = infoOpen ? "block" : "none";
+	infoBtn.style.color = infoOpen ? "#ffd28a" : "rgba(255,255,255,0.55)";
+	if (infoOpen) updateDebugHud();
+});
+let frameCounter = 0;
+function updateDebugHud() {
+	if (!infoOpen) return;
+	const cp = camera.position;
+	const ot = orbit.target;
+	const dist = cp.distanceTo(ot);
+	const sel = selected;
+	let selBlock = "selected: none";
+	if (sel) {
+		const kind = sel.userData?.primKind || sel.type || "?";
+		const p = sel.position;
+		const s = sel.scale;
+		selBlock =
+			`selected: ${sel.name || "(unnamed)"}\n` +
+			`  kind=${kind}\n` +
+			`  pos=(${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)})\n` +
+			`  scale=(${s.x.toFixed(2)}, ${s.y.toFixed(2)}, ${s.z.toFixed(2)})`;
+		const b = readBounds(sel);
+		if (b) selBlock += `\n  bounds: center=(${b.cx.toFixed(2)},${b.cy.toFixed(2)},${b.cz.toFixed(2)}) size=${b.size.toFixed(2)}`;
+	}
+	debugHud.textContent =
+		`SCENE\n` +
+		`  objects=${objects.length}\n\n` +
+		`CAMERA\n` +
+		`  pos=(${cp.x.toFixed(2)}, ${cp.y.toFixed(2)}, ${cp.z.toFixed(2)})\n` +
+		`  target=(${ot.x.toFixed(2)}, ${ot.y.toFixed(2)}, ${ot.z.toFixed(2)})\n` +
+		`  dist=${dist.toFixed(2)} fov=${camera.fov.toFixed(0)}°\n\n` +
+		selBlock +
+		(renderErrorCount ? `\n\nRENDER ERRORS · ${renderErrorCount}\n  ${lastRenderError}` : "");
+}
+const animClock = new THREE.Clock();
 function loop() {
 	try {
+		const dt = animClock.getDelta();
+		if (fbxMixers.length) for (const m of fbxMixers) m.update(dt);
 		orbit.update();
 		if (anchorMode) updatePivotMarker();
 		renderer.render(scene, camera);
 	} catch (e) {
 		renderErrorCount++;
-		if (renderErrorCount < 5) console.error("[Comfy3D] render error:", e);
-		if (renderErrorCount === 5) console.error("[Comfy3D] suppressing further render errors (loop continues)");
+		lastRenderError = String(e?.message || e).slice(0, 200);
+		if (renderErrorCount < 5) console.error("[ComfyBlockout] render error:", e);
+		if (renderErrorCount === 5) console.error("[ComfyBlockout] suppressing further render errors (loop continues)");
 	}
+	frameCounter++;
+	if (frameCounter % 30 === 0) updateDebugHud();
 	requestAnimationFrame(loop);
 }
 loop();
@@ -1333,8 +1602,6 @@ function setRecordingMode(on) {
 	transformHelper.visible = !on;
 }
 
-window.addEventListener("resize", updateAspectFrame);
-
 async function startRecording() {
 	if (recording) return;
 	const duration = parseFloat(document.getElementById("duration").value);
@@ -1400,7 +1667,7 @@ async function uploadImage(blob) {
 	const fd = new FormData();
 	fd.append("node_id", NODE_ID);
 	fd.append("image", blob, `comfy3d_${NODE_ID}.png`);
-	const r = await fetch("/comfy3d/save_image", { method: "POST", body: fd });
+	const r = await fetch("/comfyblockout/save_image", { method: "POST", body: fd });
 	return r.json();
 }
 
@@ -1410,7 +1677,7 @@ async function uploadVideo(blob) {
 	fd.append("video", blob, `comfy3d_${NODE_ID}.webm`);
 	const asp = currentAspect();
 	if (asp) fd.append("aspect", asp.str);
-	const r = await fetch("/comfy3d/save_video", { method: "POST", body: fd });
+	const r = await fetch("/comfyblockout/save_video", { method: "POST", body: fd });
 	return r.json();
 }
 
@@ -1428,6 +1695,17 @@ function serializeScene() {
 			rotation: [o.rotation.x, o.rotation.y, o.rotation.z],
 			scale: o.scale.toArray(),
 			color: o.material?.color?.getHex?.() ?? 0xffffff,
+			visible: o.visible !== false,
+		})),
+		imports: objects.filter(o => o.userData.assetId).map(o => ({
+			kind: o.userData.primKind,
+			assetId: o.userData.assetId,
+			filename: o.userData.filename,
+			name: o.name,
+			position: o.position.toArray(),
+			rotation: [o.rotation.x, o.rotation.y, o.rotation.z],
+			scale: o.scale.toArray(),
+			quaternion: [o.quaternion.x, o.quaternion.y, o.quaternion.z, o.quaternion.w],
 			visible: o.visible !== false,
 		})),
 		camera: {
@@ -1455,7 +1733,7 @@ function serializeScene() {
 	};
 }
 
-function deserializeScene(state) {
+async function deserializeScene(state) {
 	if (!state) return false;
 	while (objects.length) deleteObject(objects[0]);
 
@@ -1468,6 +1746,31 @@ function deserializeScene(state) {
 		mesh.scale.fromArray(p.scale);
 		if (p.color !== undefined) mesh.material.color.setHex(p.color);
 		if (p.visible === false) mesh.visible = false;
+	}
+
+	for (const im of (state.imports || [])) {
+		try {
+			const ext = (im.filename?.split(".").pop() || "").toLowerCase();
+			const url = `/comfyblockout/asset/${encodeURIComponent(NODE_ID)}/${encodeURIComponent(im.assetId)}.${ext}`;
+			const r = await fetch(url);
+			if (!r.ok) { console.warn(`[ComfyBlockout] missing asset ${im.assetId} (${r.status})`); continue; }
+			const buf = await r.arrayBuffer();
+			await loadFromBytes(buf, im.filename, {
+				restoring: true,
+				assetId: im.assetId,
+				savedName: im.name,
+				transform: {
+					position: im.position,
+					rotation: im.rotation,
+					scale: im.scale,
+					quaternion: im.quaternion,
+				},
+			});
+			const obj = objects[objects.length - 1];
+			if (obj && im.visible === false) obj.visible = false;
+		} catch (e) {
+			console.warn(`[ComfyBlockout] failed to restore import ${im.assetId}:`, e);
+		}
 	}
 
 	if (state.camera) {
@@ -1527,7 +1830,7 @@ function deserializeScene(state) {
 
 async function saveScene() {
 	try {
-		await fetch("/comfy3d/save_scene", {
+		await fetch("/comfyblockout/save_scene", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ node_id: NODE_ID, scene: serializeScene() }),
@@ -1547,11 +1850,11 @@ const saveSceneDebounced = (() => {
 
 async function loadScene() {
 	try {
-		const r = await fetch(`/comfy3d/load_scene?node_id=${encodeURIComponent(NODE_ID)}`);
+		const r = await fetch(`/comfyblockout/load_scene?node_id=${encodeURIComponent(NODE_ID)}`);
 		const j = await r.json();
 		if (j.scene) {
 			console.log("[Comfy3D] restoring scene:", j.scene);
-			return deserializeScene(j.scene);
+			return await deserializeScene(j.scene);
 		}
 	} catch (e) {
 		console.warn("[Comfy3D] scene load failed:", e);
@@ -1566,7 +1869,7 @@ aspectSelect.addEventListener("change", saveSceneDebounced);
 window.addEventListener("beforeunload", () => {
 	try {
 		const blob = new Blob([JSON.stringify({ node_id: NODE_ID, scene: serializeScene() })], { type: "application/json" });
-		navigator.sendBeacon?.("/comfy3d/save_scene", blob);
+		navigator.sendBeacon?.("/comfyblockout/save_scene", blob);
 	} catch {}
 });
 
@@ -1589,7 +1892,7 @@ window.addEventListener("message", async (ev) => {
 	if (ev.data?.source !== "comfy3d-parent" || ev.data?.type !== "flush-save") return;
 	try {
 		const blob = new Blob([JSON.stringify({ node_id: NODE_ID, scene: serializeScene() })], { type: "application/json" });
-		navigator.sendBeacon?.("/comfy3d/save_scene", blob);
+		navigator.sendBeacon?.("/comfyblockout/save_scene", blob);
 		await saveScene();
 		await autoSnapshot();
 	} catch (e) {
@@ -1606,7 +1909,7 @@ const savePromptDebounced = (() => {
 		clearTimeout(t);
 		t = setTimeout(async () => {
 			try {
-				await fetch("/comfy3d/save_prompt", {
+				await fetch("/comfyblockout/save_prompt", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ node_id: NODE_ID, prompt: promptEl.value }),
@@ -1619,7 +1922,7 @@ promptEl.addEventListener("input", savePromptDebounced);
 
 async function loadPrompt() {
 	try {
-		const r = await fetch(`/comfy3d/load_prompt?node_id=${encodeURIComponent(NODE_ID)}`);
+		const r = await fetch(`/comfyblockout/load_prompt?node_id=${encodeURIComponent(NODE_ID)}`);
 		const j = await r.json();
 		promptEl.value = j.prompt || "";
 	} catch (e) { console.warn("[Comfy3D] prompt load failed:", e); }
@@ -1628,7 +1931,11 @@ async function loadPrompt() {
 (async () => {
 	await loadPrompt();
 	const restored = await loadScene();
-	if (!restored || objects.length === 0) addPrimitive("cube");
+	if (!restored || objects.length === 0) {
+		const cube = addPrimitive("cube");
+		cube.position.set(0, 0, 0);
+		saveScene();
+	}
 })();
 
 	</script>

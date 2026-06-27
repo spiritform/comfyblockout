@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -149,9 +150,9 @@ class ComfyBlockout:
         return str(path)
 
 
-@PromptServer.instance.routes.post("/comfy3d/save_video")
+@PromptServer.instance.routes.post("/comfyblockout/save_video")
 async def save_video(request):
-    """Editor uploads a recorded mp4. We persist it under temp/comfy3d/<node_id>.mp4
+    """Editor uploads a recorded mp4. We persist it under temp/comfyblockout/<node_id>.mp4
     and remember the path keyed by node_id so process() can pick it up."""
     try:
         reader = await request.multipart()
@@ -226,7 +227,7 @@ async def save_video(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
-@PromptServer.instance.routes.post("/comfy3d/save_image")
+@PromptServer.instance.routes.post("/comfyblockout/save_image")
 async def save_image(request):
     """Editor uploads a still PNG snapshot. We persist it and remember the path
     keyed by node_id so process() can use it for the IMAGE output."""
@@ -260,7 +261,7 @@ async def save_image(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
-@PromptServer.instance.routes.post("/comfy3d/save_prompt")
+@PromptServer.instance.routes.post("/comfyblockout/save_prompt")
 async def save_prompt(request):
     try:
         data = await request.json()
@@ -276,7 +277,7 @@ async def save_prompt(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
-@PromptServer.instance.routes.get("/comfy3d/load_prompt")
+@PromptServer.instance.routes.get("/comfyblockout/load_prompt")
 async def load_prompt(request):
     try:
         node_id = request.query.get("node_id", "").strip()
@@ -294,7 +295,60 @@ async def load_prompt(request):
         return web.json_response({"prompt": DEFAULT_PROMPT, "error": str(e)})
 
 
-@PromptServer.instance.routes.post("/comfy3d/save_scene")
+def _asset_dir(node_id: str) -> Path:
+    d = _temp_dir() / "assets" / node_id
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+_SAFE_ASSET_ID = re.compile(r"^[a-zA-Z0-9_\-]+$")
+_SAFE_EXT = re.compile(r"^[a-zA-Z0-9]{1,6}$")
+
+
+@PromptServer.instance.routes.post("/comfyblockout/save_asset")
+async def save_asset(request):
+    """Persist an imported asset (GLB/OBJ/PLY/SPLAT/SPZ) so the scene can re-load it."""
+    try:
+        reader = await request.multipart()
+        node_id = asset_id = ext = None
+        file_bytes = None
+        while True:
+            field = await reader.next()
+            if field is None:
+                break
+            if field.name == "node_id":
+                node_id = (await field.read(decode=True)).decode("utf-8").strip()
+            elif field.name == "asset_id":
+                asset_id = (await field.read(decode=True)).decode("utf-8").strip()
+            elif field.name == "ext":
+                ext = (await field.read(decode=True)).decode("utf-8").strip().lower().lstrip(".")
+            elif field.name == "file":
+                file_bytes = await field.read(decode=False)
+        if not node_id or not asset_id or not ext or file_bytes is None:
+            return web.json_response({"success": False, "error": "Missing field"}, status=400)
+        if not _SAFE_ASSET_ID.match(asset_id) or not _SAFE_EXT.match(ext):
+            return web.json_response({"success": False, "error": "Invalid id/ext"}, status=400)
+        path = _asset_dir(node_id) / f"{asset_id}.{ext}"
+        path.write_bytes(file_bytes)
+        print(f"[ComfyBlockout] save_asset node={node_id} id={asset_id} ext={ext} → {path} ({len(file_bytes)/1024:.1f} KB)")
+        return web.json_response({"success": True})
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+@PromptServer.instance.routes.get("/comfyblockout/asset/{node_id}/{asset_name}")
+async def serve_asset(request):
+    node_id = request.match_info["node_id"]
+    asset_name = request.match_info["asset_name"]
+    if "/" in asset_name or "\\" in asset_name or ".." in asset_name:
+        return web.Response(status=400, text="Invalid asset name")
+    path = _asset_dir(node_id) / asset_name
+    if not path.exists():
+        return web.Response(status=404, text="Not found")
+    return web.FileResponse(path, headers={"Content-Type": "application/octet-stream"})
+
+
+@PromptServer.instance.routes.post("/comfyblockout/save_scene")
 async def save_scene(request):
     """Editor saves scene JSON (object transforms, camera path, etc.) so reopening
     the editor restores the same blockout."""
@@ -321,7 +375,7 @@ async def save_scene(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
-@PromptServer.instance.routes.get("/comfy3d/load_scene")
+@PromptServer.instance.routes.get("/comfyblockout/load_scene")
 async def load_scene(request):
     try:
         node_id = request.query.get("node_id", "").strip()
@@ -345,7 +399,7 @@ async def load_scene(request):
         return web.json_response({"scene": None, "error": str(e)})
 
 
-@PromptServer.instance.routes.get("/comfy3d/video_url")
+@PromptServer.instance.routes.get("/comfyblockout/video_url")
 async def video_url(request):
     """Returns a URL the editor / node thumbnail can use to preview the rendered mp4."""
     try:
@@ -355,12 +409,12 @@ async def video_url(request):
         path = Path(_video_store[node_id]["path"])
         if not path.exists():
             return web.json_response({"url": None})
-        return web.json_response({"url": f"/comfy3d/video/{node_id}"})
+        return web.json_response({"url": f"/comfyblockout/video/{node_id}"})
     except Exception as e:
         return web.json_response({"url": None, "error": str(e)})
 
 
-@PromptServer.instance.routes.get("/comfy3d/video/{node_id}")
+@PromptServer.instance.routes.get("/comfyblockout/video/{node_id}")
 async def serve_video(request):
     node_id = request.match_info["node_id"]
     info = _video_store.get(node_id)
@@ -373,7 +427,7 @@ async def serve_video(request):
     return web.FileResponse(path, headers={"Content-Type": ctype})
 
 
-@PromptServer.instance.routes.get("/comfy3d/image_url")
+@PromptServer.instance.routes.get("/comfyblockout/image_url")
 async def image_url(request):
     try:
         node_id = request.query.get("node_id", "").strip()
@@ -382,12 +436,12 @@ async def image_url(request):
         path = Path(_image_store[node_id]["path"])
         if not path.exists():
             return web.json_response({"url": None})
-        return web.json_response({"url": f"/comfy3d/image/{node_id}"})
+        return web.json_response({"url": f"/comfyblockout/image/{node_id}"})
     except Exception as e:
         return web.json_response({"url": None, "error": str(e)})
 
 
-@PromptServer.instance.routes.get("/comfy3d/image/{node_id}")
+@PromptServer.instance.routes.get("/comfyblockout/image/{node_id}")
 async def serve_image(request):
     node_id = request.match_info["node_id"]
     info = _image_store.get(node_id)

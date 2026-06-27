@@ -2,7 +2,7 @@ import { app } from "../../scripts/app.js";
 
 const EXT_NAME = "comfyblockout";
 const NODE_NAME = "ComfyBlockout";
-const EDITOR_URL = "extensions/comfy3d/editor.html";
+const EDITOR_URL = "extensions/ComfyBlockout/editor.html";
 
 const style = document.createElement("style");
 style.textContent = `
@@ -104,8 +104,8 @@ async function refreshThumbnail(node, ui) {
     const nodeId = String(node.id);
     try {
         const [vr, ir] = await Promise.all([
-            fetch(`/comfy3d/video_url?node_id=${nodeId}`).then(r => r.json()),
-            fetch(`/comfy3d/image_url?node_id=${nodeId}`).then(r => r.json()),
+            fetch(`/comfyblockout/video_url?node_id=${nodeId}`).then(r => r.json()),
+            fetch(`/comfyblockout/image_url?node_id=${nodeId}`).then(r => r.json()),
         ]);
 
         const videoUrl = vr.url ? `${vr.url}?t=${Date.now()}` : null;
