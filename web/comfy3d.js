@@ -21,10 +21,11 @@ style.textContent = `
     position: relative;
     flex: 1;
     min-height: 100px;
-    background:
-        radial-gradient(ellipse 60% 70% at 50% 55%, rgba(60,80,110,0.18), transparent 70%),
-        linear-gradient(180deg, #0c0d12 0%, #07080b 100%);
+    background: #07080b;
     overflow: hidden;
+}
+.c3d-thumb iframe {
+    width: 100%; height: 100%; border: none; display: block; background: #07080b;
 }
 .c3d-thumb video, .c3d-thumb canvas {
     width: 100%; height: 100%; object-fit: cover; display: block;
@@ -55,106 +56,92 @@ style.textContent = `
     content: ""; width: 5px; height: 5px; border-radius: 50%; background: #5aff8a;
     box-shadow: 0 0 4px #5aff8a;
 }
-.c3d-edit-btn {
-    background: rgba(255,255,255,0.08);
-    border: none;
-    color: #fff;
-    padding: 8px;
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    cursor: pointer;
-    font-family: inherit;
-    border-top: 1px solid rgba(255,255,255,0.06);
-}
-.c3d-edit-btn:hover { background: rgba(255,255,255,0.14); }
 `;
 document.head.appendChild(style);
 
 
+function previewUrl(nodeId) {
+    return `extensions/ComfyBlockout/editor.html?node_id=${encodeURIComponent(nodeId)}&mode=preview&t=${Date.now()}`;
+}
+
+const DEFAULT_SCENE = {
+    primitives: [{
+        kind: "cube",
+        name: "Cube.001",
+        position: [0, 0.5, 0],
+        rotation: [0, 0, 0],
+        scale: [1, 1, 1],
+        color: 0xbfc6d4,
+        visible: true,
+    }],
+    camera: { position: [2.2, 1.6, 2.8], target: [0, 0.5, 0], fov: 55 },
+    aspect: "16:9",
+    env: { preset: "studio", intensity: 1.0 },
+    viewport: { grid: true, guides: false, bg: "#07080b" },
+    keyframes: [],
+    imports: [],
+};
+
+async function seedDefaultIfEmpty(nodeId) {
+    try {
+        const r = await fetch(`/comfyblockout/load_scene?node_id=${encodeURIComponent(nodeId)}`);
+        const j = await r.json();
+        if (j.scene) return false; // already has saved state
+        await fetch("/comfyblockout/save_scene", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ node_id: nodeId, scene: DEFAULT_SCENE }),
+        });
+        return true;
+    } catch (e) {
+        console.warn("[ComfyBlockout] default-scene seed failed:", e);
+        return false;
+    }
+}
+
+function getStableNodeId(node) {
+    // LiteGraph assigns node.id = -1 for freshly-dropped, unsaved nodes — collision-prone.
+    // Stamp a stable UUID on the node and persist it via node.properties so it survives reload.
+    node.properties = node.properties || {};
+    if (!node.properties.comfyblockout_uid) {
+        node.properties.comfyblockout_uid = "cb_" + (crypto.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`).replace(/-/g, "");
+    }
+    return node.properties.comfyblockout_uid;
+}
+
 function buildWidget(node) {
+    const nodeId = getStableNodeId(node);
     const wrap = document.createElement("div");
     wrap.className = "c3d-wrap";
 
     const thumb = document.createElement("div");
     thumb.className = "c3d-thumb";
 
-    const empty = document.createElement("div");
-    empty.className = "c3d-thumb-empty";
-    empty.innerHTML = `<div class="icon">◇</div><div class="label">empty scene</div>`;
-    thumb.appendChild(empty);
-
-    const status = document.createElement("div");
-    status.className = "c3d-status";
-    status.textContent = "no render yet";
-    thumb.appendChild(status);
-
-    const editBtn = document.createElement("button");
-    editBtn.className = "c3d-edit-btn";
-    editBtn.textContent = "⛶  Edit Scene";
+    const previewFrame = document.createElement("iframe");
+    previewFrame.src = previewUrl(nodeId);
+    previewFrame.allow = "autoplay";
+    thumb.appendChild(previewFrame);
 
     wrap.appendChild(thumb);
-    wrap.appendChild(editBtn);
 
-    return { wrap, thumb, empty, status, editBtn };
+    return { wrap, thumb, previewFrame, nodeId };
 }
 
 
-async function refreshThumbnail(node, ui) {
-    const nodeId = String(node.id);
-    try {
-        const [vr, ir] = await Promise.all([
-            fetch(`/comfyblockout/video_url?node_id=${nodeId}`).then(r => r.json()),
-            fetch(`/comfyblockout/image_url?node_id=${nodeId}`).then(r => r.json()),
-        ]);
-
-        const videoUrl = vr.url ? `${vr.url}?t=${Date.now()}` : null;
-        const imageUrl = ir.url ? `${ir.url}?t=${Date.now()}` : null;
-
-        if (videoUrl) {
-            ui.empty.style.display = "none";
-            const img = ui.thumb.querySelector("img");
-            if (img) img.remove();
-            let video = ui.thumb.querySelector("video");
-            if (!video) {
-                video = document.createElement("video");
-                video.muted = true;
-                video.loop = true;
-                video.autoplay = true;
-                video.playsInline = true;
-                ui.thumb.insertBefore(video, ui.status);
-            }
-            if (!video.src.endsWith(videoUrl)) {
-                video.src = videoUrl;
-                video.play().catch(() => {});
-            }
-            ui.status.textContent = imageUrl ? "rendered · snapshot + video" : "rendered · loop preview";
-        } else if (imageUrl) {
-            ui.empty.style.display = "none";
-            const video = ui.thumb.querySelector("video");
-            if (video) video.remove();
-            let img = ui.thumb.querySelector("img");
-            if (!img) {
-                img = document.createElement("img");
-                img.style.cssText = "width:100%;height:100%;object-fit:cover;display:block;";
-                ui.thumb.insertBefore(img, ui.status);
-            }
-            if (!img.src.endsWith(imageUrl)) img.src = imageUrl;
-            ui.status.textContent = "snapshot only";
-        } else {
-            ui.empty.style.display = "flex";
-            ui.thumb.querySelector("video")?.remove();
-            ui.thumb.querySelector("img")?.remove();
-            ui.status.textContent = "no render yet";
-        }
-    } catch (e) {
-        console.warn("[Comfy3D] thumbnail refresh failed:", e);
-    }
+function refreshThumbnail(node, ui) {
+    // Tear down + recreate iframe — guarantees no cached state, no stale module instance
+    if (!ui.thumb) return;
+    const fresh = document.createElement("iframe");
+    fresh.src = previewUrl(ui.nodeId);
+    fresh.allow = "autoplay";
+    ui.previewFrame?.remove();
+    ui.thumb.appendChild(fresh);
+    ui.previewFrame = fresh;
 }
 
 
 function openEditor(node) {
-    const nodeId = String(node.id);
+    const nodeId = getStableNodeId(node);
     const url = `${EDITOR_URL}?node_id=${encodeURIComponent(nodeId)}&t=${Date.now()}`;
 
     const modal = document.createElement("div");
@@ -238,15 +225,34 @@ app.registerExtension({
 
         const ui = buildWidget(node);
 
+        // Pipe the stable UID into the "scene" widget so process() can recover the right
+        // asset/scene storage key — LiteGraph node.id is unreliable for fresh/unsaved nodes.
+        const sceneWidget = node.widgets?.find(w => w.name === "scene");
+        if (sceneWidget) {
+            sceneWidget.value = ui.nodeId;
+            sceneWidget.serializeValue = () => ui.nodeId;
+        }
+
         node.addDOMWidget("preview", "div", ui.wrap, {
             serialize: false,
             getHeight: () => 220,
         });
 
-        ui.editBtn.addEventListener("click", () => openEditor(node));
-
         node.__c3dRefresh = () => refreshThumbnail(node, ui);
-        node.__c3dRefresh();
+
+        // Seed a default cube scene if this UID has nothing saved yet, then nudge the iframe.
+        seedDefaultIfEmpty(ui.nodeId).then(seeded => {
+            if (seeded) node.__c3dRefresh();
+        });
+
+        // Preview iframe's Edit Scene button posts request-edit; route to openEditor for this node.
+        const editRequestHandler = (ev) => {
+            if (ev.data?.source !== "comfyblockout-editor" || ev.data?.type !== "request-edit") return;
+            if (String(ev.data.node_id) !== ui.nodeId) return;
+            openEditor(node);
+        };
+        window.addEventListener("message", editRequestHandler);
+        node.__c3dCleanup = () => window.removeEventListener("message", editRequestHandler);
 
         const origSize = node.size?.slice();
         if (origSize && origSize[1] < 280) node.size[1] = 280;
@@ -254,4 +260,4 @@ app.registerExtension({
     },
 });
 
-console.log("[Comfy3D] extension loaded");
+console.log("[ComfyBlockout] extension loaded");

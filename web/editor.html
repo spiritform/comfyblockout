@@ -32,6 +32,46 @@
 		display: flex; align-items: center; gap: 8px; padding: 8px 14px;
 		font-family: inherit; user-select: none;
 	}
+
+	/* Preview-mode (in-node iframe): hide chrome, expose tiny floating transport */
+	body.preview-mode #panel,
+	body.preview-mode #timeline,
+	body.preview-mode #status,
+	body.preview-mode #info-block,
+	body.preview-mode #drop-overlay,
+	body.preview-mode #aspect-frame .label { display: none !important; }
+	body.preview-mode #aspect-frame { border-color: rgba(255,255,255,0.05); }
+	body.preview-mode #viewport-area { padding: 0; }
+	body.preview-mode #canvas-wrap { padding: 0; }
+	#preview-transport {
+		position: absolute; left: 8px; right: 8px; bottom: 8px;
+		display: none; align-items: center; gap: 4px; z-index: 30;
+		pointer-events: none;
+	}
+	body.preview-mode #preview-transport { display: flex; }
+	.pv-group {
+		display: flex; align-items: center; gap: 2px; padding: 4px 6px;
+		background: rgba(14,14,18,0.85); border: 1px solid rgba(255,255,255,0.08);
+		border-radius: 999px; backdrop-filter: blur(6px); pointer-events: auto;
+	}
+	#preview-transport button {
+		background: none; border: none; cursor: pointer;
+		width: 26px; height: 26px;
+		display: flex; align-items: center; justify-content: center;
+	}
+	.pv-icon {
+		width: 16px; height: 16px; display: block;
+		filter: brightness(0) invert(0.8);
+		transition: filter 0.12s;
+	}
+	#preview-transport button:hover .pv-icon { filter: brightness(0) invert(1); }
+	#preview-transport button.active .pv-icon { filter: brightness(0) invert(0.85) sepia(1) saturate(6) hue-rotate(330deg); }
+	#preview-transport button.rec .pv-icon { filter: brightness(0) invert(0.55) sepia(1) saturate(8) hue-rotate(330deg); }
+	#preview-transport button.rec.recording .pv-icon { filter: brightness(0) invert(1) sepia(1) saturate(8) hue-rotate(330deg); }
+	#preview-transport .pv-time {
+		font: 10px ui-monospace, monospace; color: rgba(255,255,255,0.55);
+		padding: 0 6px; min-width: 42px; text-align: center;
+	}
 	.tl-btn {
 		background: rgba(255,255,255,0.06); border: none; border-radius: 6px;
 		color: #ccc; font-size: 16px; font-weight: 700; cursor: pointer;
@@ -39,7 +79,8 @@
 		display: flex; align-items: center; justify-content: center;
 		font-family: inherit; line-height: 1;
 	}
-	#tl-addkey { font-size: 20px; }
+	#tl-addkey { font-size: 24px; }
+	#tl-rewind { font-size: 11px; letter-spacing: -2px; }
 	.tl-btn:hover { background: rgba(255,255,255,0.12); }
 	.tl-btn.active { background: rgba(255,180,84,0.18); color: #ffd28a; }
 	.tl-btn.rec { color: #ff7a7a; }
@@ -401,6 +442,19 @@
 			<canvas id="renderCanvas"></canvas>
 			<div id="aspect-frame" class="no-guides"><span class="v1"></span><span class="v2"></span><span class="label" id="aspect-label">16:9</span></div>
 			<div id="status">idle · 0 objects</div>
+			<div id="preview-transport">
+				<div class="pv-group">
+					<button id="pv-edit" title="Edit Scene"><img class="pv-icon" src="/extensions/ComfyBlockout/icons/edit.png" alt="edit"></button>
+				</div>
+				<div style="flex:1"></div>
+				<div class="pv-group">
+					<button id="pv-clean" title="Clean view — hide grid + guides"><img class="pv-icon" src="/extensions/ComfyBlockout/icons/clean.png" alt="clean"></button>
+					<button id="pv-rewind" title="Rewind"><img class="pv-icon" src="/extensions/ComfyBlockout/icons/rewind.svg" alt="rewind"></button>
+					<button id="pv-play" title="Play / pause"><img class="pv-icon" src="/extensions/ComfyBlockout/icons/play.svg" alt="play"></button>
+					<button class="rec" id="pv-rec" title="Record video"><img class="pv-icon" src="/extensions/ComfyBlockout/icons/record.svg" alt="record"></button>
+					<span class="pv-time" id="pv-time">0.00s</span>
+				</div>
+			</div>
 			<div id="info-block" style="position:absolute;top:0;left:0;background:rgba(20,20,24,0.85);border:1px solid rgba(255,255,255,0.08);border-radius:0 0 6px 0;z-index:11;display:flex;flex-direction:column;align-items:flex-start">
 				<button id="info-btn" title="Scene info" style="width:24px;height:24px;border:none;background:transparent;color:rgba(255,255,255,0.55);font:11px serif;font-style:italic;font-weight:600;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center">i</button>
 				<div id="debug-hud" style="color:rgba(255,255,255,0.45);font:10px ui-monospace,monospace;padding:0 12px 10px 12px;line-height:1.6;white-space:pre;display:none;min-width:200px"></div>
@@ -408,7 +462,8 @@
 		</div>
 		<div id="timeline">
 			<button class="tl-btn rec" id="tl-rec" title="Record (auto-tween if keyframes exist)">●</button>
-			<button class="tl-btn" id="tl-play" title="Play preview">▶</button>
+			<button class="tl-btn" id="tl-play" title="Play / pause (space)">▶</button>
+			<button class="tl-btn" id="tl-rewind" title="Rewind to start">◀◀</button>
 			<button class="tl-btn" id="tl-addkey" title="Add keyframe at playhead">+</button>
 			<button class="tl-btn" id="tl-clearkey" title="Delete selected keyframe (or all if none selected)">✕</button>
 			<div id="tl-scrub-wrap">
@@ -459,6 +514,9 @@ import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
 
 const params = new URLSearchParams(location.search);
 const NODE_ID = params.get("node_id") || "preview";
+const MODE = params.get("mode") || "editor";
+const IS_PREVIEW = MODE === "preview";
+if (IS_PREVIEW) document.body.classList.add("preview-mode");
 
 const canvas = document.getElementById("renderCanvas");
 const canvasWrap = document.getElementById("canvas-wrap");
@@ -541,12 +599,12 @@ async function setEnvironment(key) {
 			applyEnvTexture(env);
 			updateStatus(`env: ${preset.label}`);
 		}, undefined, (err) => {
-			console.error("[Comfy3D] HDRI load failed:", err);
+			console.error("[ComfyBlockout] HDRI load failed:", err);
 			updateStatus(`HDRI load failed — using studio`);
 			applyRoomEnvironment();
 		});
 	} catch (e) {
-		console.error("[Comfy3D] HDRI threw:", e);
+		console.error("[ComfyBlockout] HDRI threw:", e);
 		applyRoomEnvironment();
 	}
 }
@@ -671,6 +729,28 @@ async function loadFBX(arrayBuffer, filename, opts = {}) {
 	updateStatus(`loading FBX ${filename}…`);
 	try {
 		const root = fbxLoader.parse(arrayBuffer, "");
+		// FBX usually ships MeshPhongMaterial which barely responds to our hemi/dir setup.
+		// Swap to MeshStandardMaterial so the studio HDRI actually lights the character.
+		root.traverse(c => {
+			if (!c.isMesh) return;
+			const mats = Array.isArray(c.material) ? c.material : [c.material];
+			c.material = mats.map(m => {
+				if (!m || m.isMeshStandardMaterial) return m;
+				const std = new THREE.MeshStandardMaterial({
+					color: m.color?.clone?.() ?? new THREE.Color(0xcccccc),
+					map: m.map || null,
+					normalMap: m.normalMap || null,
+					roughness: 0.7,
+					metalness: 0.0,
+					skinning: c.isSkinnedMesh,
+					transparent: m.transparent,
+					opacity: m.opacity ?? 1,
+				});
+				m.dispose?.();
+				return std;
+			});
+			if (c.material.length === 1) c.material = c.material[0];
+		});
 		// FBX often exports in cm; normalize to a sane size on first import
 		if (!opts.restoring) {
 			const box = new THREE.Box3().setFromObject(root);
@@ -683,14 +763,30 @@ async function loadFBX(arrayBuffer, filename, opts = {}) {
 			}
 		}
 		applySavedTransform(root, opts.transform);
-		// If the FBX shipped animations, run the first one
+		// If the FBX shipped animations, prep the first clip — start paused so transport controls drive it
 		if (root.animations?.length) {
 			const mixer = new THREE.AnimationMixer(root);
-			mixer.clipAction(root.animations[0]).play();
+			const action = mixer.clipAction(root.animations[0]);
+			action.play();
+			mixer.timeScale = 0; // paused; playPreview() resumes
 			fbxMixers.push(mixer);
 			root.userData.mixer = mixer;
 		}
 		scene.add(root);
+		// Compute pick sphere AFTER scene.add so all matrixWorlds are valid.
+		// (SkinnedMesh raycast is unreliable, and pivot-mode raycasts need a hittable proxy.)
+		root.updateMatrixWorld(true);
+		const worldBox = new THREE.Box3().setFromObject(root);
+		if (isFinite(worldBox.min.x) && worldBox.max.x > worldBox.min.x) {
+			const worldSphere = new THREE.Sphere();
+			worldBox.getBoundingSphere(worldSphere);
+			const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+			worldSphere.applyMatrix4(inv);
+			root.userData.pickSphere = worldSphere;
+		} else {
+			// Fallback: a generous unit sphere centered on the object
+			root.userData.pickSphere = new THREE.Sphere(new THREE.Vector3(0, 1, 0), 1.5);
+		}
 		if (opts.assetId) root.userData.assetId = opts.assetId;
 		registerImported(root, "fbx", filename);
 		if (opts.savedName) root.name = opts.savedName;
@@ -741,7 +837,7 @@ function readBounds(obj) {
 			if (isFinite(c.x) && isFinite(s.x)) {
 				return { cx: c.x, cy: c.y, cz: c.z, size: Math.max(Math.abs(s.x), Math.abs(s.y), Math.abs(s.z)), src: "gsplat" };
 			}
-		} catch (e) { console.warn("[Comfy3D] gsplat bounds read failed:", e); }
+		} catch (e) { console.warn("[ComfyBlockout] gsplat bounds read failed:", e); }
 	}
 	const box = new THREE.Box3().setFromObject(obj);
 	if (isFinite(box.min.x) && isFinite(box.max.x) && box.max.x > box.min.x) {
@@ -761,7 +857,7 @@ function frameSplat(splatMesh) {
 	const rawSize = bbox.getSize(new THREE.Vector3());
 	const maxDim = Math.max(rawSize.x, rawSize.y, rawSize.z);
 	const baseScale = (maxDim > 0 && isFinite(maxDim)) ? SPLAT_TARGET_SIZE / maxDim : 1;
-	console.log(`[Comfy3D] splat bbox: center=(${rawCenter.x.toFixed(2)},${rawCenter.y.toFixed(2)},${rawCenter.z.toFixed(2)}) size=${maxDim.toFixed(2)} → baseScale ${baseScale.toFixed(4)}`);
+	console.log(`[ComfyBlockout] splat bbox: center=(${rawCenter.x.toFixed(2)},${rawCenter.y.toFixed(2)},${rawCenter.z.toFixed(2)}) size=${maxDim.toFixed(2)} → baseScale ${baseScale.toFixed(4)}`);
 
 	splatMesh.scale.set(baseScale, baseScale, baseScale);
 	const rotatedCenter = rawCenter.clone().applyQuaternion(splatMesh.quaternion).multiplyScalar(baseScale);
@@ -784,7 +880,7 @@ function showLoading(title, sub) {
 	loadingOverlay.classList.add("active");
 	clearTimeout(loadTimeoutId);
 	loadTimeoutId = setTimeout(() => {
-		console.warn("[Comfy3D] loading overlay auto-dismissed after 90s");
+		console.warn("[ComfyBlockout] loading overlay auto-dismissed after 90s");
 		hideLoading();
 	}, 90000);
 }
@@ -1045,24 +1141,24 @@ canvas.addEventListener("pointerup", e => {
 		true,
 	);
 	const meshHit = meshHits[0] || null;
-	// Splats: ray-vs-bounding-sphere since they have no triangle geometry
-	let splatHit = null, splatHitDist = Infinity;
+	// Sphere-pick for objects without reliable triangle raycast (splats, SkinnedMesh inside FBX)
+	let sphereHit = null, sphereHitDist = Infinity;
 	const tmpVec = new THREE.Vector3();
 	for (const o of objects) {
-		if (o.userData.primKind !== "splat" || o.visible === false || !o.userData.pickSphere) continue;
+		if (o.visible === false || !o.userData.pickSphere) continue;
 		o.updateMatrixWorld();
 		const worldSphere = o.userData.pickSphere.clone().applyMatrix4(o.matrixWorld);
 		if (raycaster.ray.intersectSphere(worldSphere, tmpVec)) {
 			const d = tmpVec.distanceTo(camera.position);
-			if (d < splatHitDist) { splatHitDist = d; splatHit = o; }
+			if (d < sphereHitDist) { sphereHitDist = d; sphereHit = o; }
 		}
 	}
-	if (meshHit && (!splatHit || meshHit.distance < splatHitDist)) {
+	if (meshHit && (!sphereHit || meshHit.distance < sphereHitDist)) {
 		let root = meshHit.object;
 		while (root && !objects.includes(root)) root = root.parent;
 		if (root) select(root);
-	} else if (splatHit) {
-		select(splatHit);
+	} else if (sphereHit) {
+		select(sphereHit);
 	} else {
 		select(null);
 	}
@@ -1253,7 +1349,8 @@ function updateAspectFrame() {
 	const asp = currentAspect();
 	if (!asp) { aspectFrame.style.display = "none"; return; }
 	const vs = viewportSize();
-	const margin = 50;
+	// Preview mode (small in-node iframe) deserves a much tighter margin so the framing actually represents the shot
+	const margin = IS_PREVIEW ? 6 : 50;
 	const maxW = vs.w - margin * 2;
 	const maxH = vs.h - margin * 2;
 	let w = maxW, h = w / asp.ratio;
@@ -1287,6 +1384,11 @@ function cropCanvasToAspect(srcCanvas) {
 window.addEventListener("keydown", (e) => {
 	const tag = e.target.tagName;
 	if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+	if (e.code === "Space") {
+		e.preventDefault();
+		isPlayingPreview ? stopPreview() : playPreview();
+		return;
+	}
 	if (e.key === "w") transform.setMode("translate");
 	else if (e.key === "e") transform.setMode("rotate");
 	else if (e.key === "r") transform.setMode("scale");
@@ -1563,27 +1665,51 @@ tlScrub.addEventListener("pointerdown", e => {
 	window.addEventListener("pointerup", onUp);
 });
 
+function setMixersPlaying(playing) {
+	for (const m of fbxMixers) m.timeScale = playing ? 1 : 0;
+}
+
 async function playPreview() {
-	if (keyframes.length < 2 || isPlayingPreview) return;
+	if (isPlayingPreview) return;
+	const hasCameraTween = keyframes.length >= 2;
 	isPlayingPreview = true;
 	tlPlay.classList.add("active");
+	setMixersPlaying(true);
 	const dur = currentDuration() * 1000;
 	const start = performance.now();
 	while (isPlayingPreview) {
 		const elapsed = performance.now() - start;
 		const t = Math.min(1, elapsed / dur);
 		setPlayhead(t);
-		const s = sampleCameraAt(t);
-		if (s) applyCameraState(s);
+		if (hasCameraTween) {
+			const s = sampleCameraAt(t);
+			if (s) applyCameraState(s);
+		}
 		if (t >= 1) break;
 		await new Promise(r => requestAnimationFrame(r));
 	}
 	isPlayingPreview = false;
 	tlPlay.classList.remove("active");
+	setMixersPlaying(false);
 }
-function stopPreview() { isPlayingPreview = false; }
+function stopPreview() {
+	isPlayingPreview = false;
+	setMixersPlaying(false);
+}
 
 tlPlay.addEventListener("click", () => isPlayingPreview ? stopPreview() : playPreview());
+
+function rewindTransport() {
+	stopPreview();
+	setPlayhead(0);
+	for (const m of fbxMixers) m.setTime(0);
+	// Snap camera to first keyframe if any
+	if (keyframes.length) {
+		const s = sampleCameraAt(0);
+		if (s) applyCameraState(s);
+	}
+}
+document.getElementById("tl-rewind").addEventListener("click", rewindTransport);
 
 setPlayhead(0);
 document.getElementById("duration").addEventListener("input", () => setPlayhead(playhead));
@@ -1829,6 +1955,7 @@ async function deserializeScene(state) {
 }
 
 async function saveScene() {
+	if (IS_PREVIEW) return; // preview iframe is read-only — never write scene state
 	try {
 		await fetch("/comfyblockout/save_scene", {
 			method: "POST",
@@ -1836,7 +1963,7 @@ async function saveScene() {
 			body: JSON.stringify({ node_id: NODE_ID, scene: serializeScene() }),
 		});
 	} catch (e) {
-		console.warn("[Comfy3D] scene save failed:", e);
+		console.warn("[ComfyBlockout] scene save failed:", e);
 	}
 }
 
@@ -1853,11 +1980,11 @@ async function loadScene() {
 		const r = await fetch(`/comfyblockout/load_scene?node_id=${encodeURIComponent(NODE_ID)}`);
 		const j = await r.json();
 		if (j.scene) {
-			console.log("[Comfy3D] restoring scene:", j.scene);
+			console.log("[ComfyBlockout] restoring scene:", j.scene);
 			return await deserializeScene(j.scene);
 		}
 	} catch (e) {
-		console.warn("[Comfy3D] scene load failed:", e);
+		console.warn("[ComfyBlockout] scene load failed:", e);
 	}
 	return false;
 }
@@ -1884,7 +2011,7 @@ async function autoSnapshot() {
 		if (!blob) return;
 		await uploadImage(blob);
 	} catch (e) {
-		console.warn("[Comfy3D] autoSnapshot failed:", e);
+		console.warn("[ComfyBlockout] autoSnapshot failed:", e);
 	}
 }
 
@@ -1896,7 +2023,7 @@ window.addEventListener("message", async (ev) => {
 		await saveScene();
 		await autoSnapshot();
 	} catch (e) {
-		console.warn("[Comfy3D] flush-save failed:", e);
+		console.warn("[ComfyBlockout] flush-save failed:", e);
 	} finally {
 		window.parent?.postMessage({ source: "comfy3d-editor", type: "save-complete" }, "*");
 	}
@@ -1914,7 +2041,7 @@ const savePromptDebounced = (() => {
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ node_id: NODE_ID, prompt: promptEl.value }),
 				});
-			} catch (e) { console.warn("[Comfy3D] prompt save failed:", e); }
+			} catch (e) { console.warn("[ComfyBlockout] prompt save failed:", e); }
 		}, 500);
 	};
 })();
@@ -1925,18 +2052,71 @@ async function loadPrompt() {
 		const r = await fetch(`/comfyblockout/load_prompt?node_id=${encodeURIComponent(NODE_ID)}`);
 		const j = await r.json();
 		promptEl.value = j.prompt || "";
-	} catch (e) { console.warn("[Comfy3D] prompt load failed:", e); }
+	} catch (e) { console.warn("[ComfyBlockout] prompt load failed:", e); }
 }
 
 (async () => {
 	await loadPrompt();
 	const restored = await loadScene();
-	if (!restored || objects.length === 0) {
+	// In preview mode (in-node iframe) never auto-add a placeholder — only show what the editor saved
+	if (!IS_PREVIEW && (!restored || objects.length === 0)) {
 		const cube = addPrimitive("cube");
 		cube.position.set(0, 0, 0);
 		saveScene();
 	}
 })();
+
+if (IS_PREVIEW) {
+	// Preview iframe: orbit only — no click-select, no transform gizmo, no drag-import.
+	// Critically, it must NEVER write scene state — orbit changes would otherwise race the
+	// async loadScene/deserializeScene and overwrite the editor's imports with [].
+	transform.detach();
+	transform.enabled = false;
+	saveScene = async () => {};
+	if (typeof window.saveSceneDebounced === "function") window.saveSceneDebounced = () => {};
+	canvas.style.cursor = "grab";
+	canvas.addEventListener("pointerdown", () => canvas.style.cursor = "grabbing");
+	canvas.addEventListener("pointerup", () => canvas.style.cursor = "grab");
+
+	const pvClean = document.getElementById("pv-clean");
+	const pvRewind = document.getElementById("pv-rewind");
+	const pvPlay = document.getElementById("pv-play");
+	const pvRec = document.getElementById("pv-rec");
+	const pvTime = document.getElementById("pv-time");
+	let cleanView = false;
+	const pvCleanIcon = pvClean.querySelector(".pv-icon");
+	pvClean.addEventListener("click", () => {
+		cleanView = !cleanView;
+		grid.visible = !cleanView;
+		aspectFrame.style.display = cleanView ? "none" : "block";
+		pvClean.classList.toggle("active", cleanView);
+		pvCleanIcon.src = `/extensions/ComfyBlockout/icons/${cleanView ? "clean-off" : "clean"}.png`;
+	});
+	pvRewind.addEventListener("click", rewindTransport);
+	pvPlay.addEventListener("click", () => isPlayingPreview ? stopPreview() : playPreview());
+	pvRec.addEventListener("click", () => {
+		if (recording) return;
+		pvRec.classList.add("recording");
+		startRecording().finally(() => pvRec.classList.remove("recording"));
+	});
+	document.getElementById("pv-edit").addEventListener("click", () => {
+		window.parent?.postMessage({ source: "comfyblockout-editor", type: "request-edit", node_id: NODE_ID }, "*");
+	});
+	const pvPlayIcon = pvPlay.querySelector(".pv-icon");
+	setInterval(() => {
+		const t = playhead * currentDuration();
+		pvTime.textContent = `${t.toFixed(2)}s · ${objects.length}o`;
+		const want = `/extensions/ComfyBlockout/icons/${isPlayingPreview ? "pause" : "play"}.svg`;
+		if (!pvPlayIcon.src.endsWith(want)) pvPlayIcon.src = want;
+	}, 100);
+
+	// Modal editor postMessages when it closes after a save — reload scene + assets
+	window.addEventListener("message", async (ev) => {
+		if (ev.data?.source === "comfyblockout-parent" && ev.data?.type === "reload-scene") {
+			await loadScene();
+		}
+	});
+}
 
 	</script>
 

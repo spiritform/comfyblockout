@@ -25,21 +25,21 @@ def _ffmpeg_available() -> bool:
 
 HAS_FFMPEG = _ffmpeg_available()
 if not HAS_FFMPEG:
-    print("[Comfy3D] ffmpeg not found in PATH — uploads will stay as webm")
+    print("[ComfyBlockout] ffmpeg not found in PATH — uploads will stay as webm")
 
 try:
     import cv2
     HAS_CV2 = True
 except ImportError:
     HAS_CV2 = False
-    print("[Comfy3D] cv2 not available — IMAGE output will be black fallback")
+    print("[ComfyBlockout] cv2 not available — IMAGE output will be black fallback")
 
 try:
     from comfy_api.input.video_types import VideoFromFile
     HAS_VIDEO_TYPE = True
 except Exception:
     HAS_VIDEO_TYPE = False
-    print("[Comfy3D] comfy_api VideoFromFile unavailable — VIDEO output will be a path string")
+    print("[ComfyBlockout] comfy_api VideoFromFile unavailable — VIDEO output will be a path string")
 
 
 _video_store = {}
@@ -108,7 +108,9 @@ class ComfyBlockout:
         return float("NaN")
 
     def process(self, scene="", video_ref="", unique_id=None):
-        node_key = str(unique_id) if unique_id else None
+        # `scene` carries the frontend's stable UUID (see comfy3d.js getStableNodeId).
+        # Falls back to unique_id when the workflow is already saved + IDs are stable.
+        node_key = scene.strip() if scene else (str(unique_id) if unique_id else None)
 
         video_path = None
         if node_key and node_key in _video_store:
@@ -131,7 +133,7 @@ class ComfyBlockout:
         elif video_path is not None:
             img = extract_first_frame(video_path)
         else:
-            print("[Comfy3D] No image or video saved — returning black placeholder")
+            print("[ComfyBlockout] No image or video saved — returning black placeholder")
             img = torch.zeros(1, 512, 512, 3)
 
         prompt = _prompt_store.get(node_key, DEFAULT_PROMPT) if node_key else DEFAULT_PROMPT
@@ -146,7 +148,7 @@ class ComfyBlockout:
             try:
                 return VideoFromFile(str(path))
             except Exception as e:
-                print(f"[Comfy3D] VideoFromFile failed, returning path: {e}")
+                print(f"[ComfyBlockout] VideoFromFile failed, returning path: {e}")
         return str(path)
 
 
@@ -215,12 +217,12 @@ async def save_video(request):
                     except Exception:
                         pass
                 else:
-                    print(f"[Comfy3D] ffmpeg conversion failed (rc={r.returncode}): {r.stderr.decode(errors='ignore')[:300]}")
+                    print(f"[ComfyBlockout] ffmpeg conversion failed (rc={r.returncode}): {r.stderr.decode(errors='ignore')[:300]}")
             except Exception as e:
-                print(f"[Comfy3D] ffmpeg threw: {e}")
+                print(f"[ComfyBlockout] ffmpeg threw: {e}")
 
         _video_store[node_id] = {"path": str(final_path)}
-        print(f"[Comfy3D] Saved video for node {node_id} → {final_path} ({len(file_bytes)/1024:.1f} KB raw, converted={converted})")
+        print(f"[ComfyBlockout] Saved video for node {node_id} → {final_path} ({len(file_bytes)/1024:.1f} KB raw, converted={converted})")
         return web.json_response({"success": True, "path": str(final_path), "bytes": len(file_bytes), "mp4": converted})
 
     except Exception as e:
@@ -254,7 +256,7 @@ async def save_image(request):
         out_path = _temp_dir() / f"node_{node_id}_image{suffix}"
         out_path.write_bytes(file_bytes)
         _image_store[node_id] = {"path": str(out_path)}
-        print(f"[Comfy3D] Saved image for node {node_id} → {out_path} ({len(file_bytes)/1024:.1f} KB)")
+        print(f"[ComfyBlockout] Saved image for node {node_id} → {out_path} ({len(file_bytes)/1024:.1f} KB)")
         return web.json_response({"success": True, "path": str(out_path), "bytes": len(file_bytes)})
 
     except Exception as e:
@@ -368,10 +370,10 @@ async def save_scene(request):
         scene_path.write_text(json.dumps(scene), encoding="utf-8")
         n_prim = len(scene.get("primitives", [])) if isinstance(scene, dict) else 0
         n_keys = len(scene.get("keyframes", [])) if isinstance(scene, dict) else 0
-        print(f"[Comfy3D] save_scene node={node_id} primitives={n_prim} keyframes={n_keys} → {scene_path}")
+        print(f"[ComfyBlockout] save_scene node={node_id} primitives={n_prim} keyframes={n_keys} → {scene_path}")
         return web.json_response({"success": True, "path": str(scene_path)})
     except Exception as e:
-        print(f"[Comfy3D] save_scene FAILED: {e}")
+        print(f"[ComfyBlockout] save_scene FAILED: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
@@ -384,18 +386,18 @@ async def load_scene(request):
         if node_id in _scene_store:
             s = _scene_store[node_id]
             n_prim = len(s.get("primitives", [])) if isinstance(s, dict) else 0
-            print(f"[Comfy3D] load_scene node={node_id} from memory · primitives={n_prim}")
+            print(f"[ComfyBlockout] load_scene node={node_id} from memory · primitives={n_prim}")
             return web.json_response({"scene": s})
         scene_path = _temp_dir() / f"node_{node_id}.scene.json"
         if scene_path.exists():
             s = json.loads(scene_path.read_text(encoding="utf-8"))
             n_prim = len(s.get("primitives", [])) if isinstance(s, dict) else 0
-            print(f"[Comfy3D] load_scene node={node_id} from disk · primitives={n_prim}")
+            print(f"[ComfyBlockout] load_scene node={node_id} from disk · primitives={n_prim}")
             return web.json_response({"scene": s})
-        print(f"[Comfy3D] load_scene node={node_id} → no saved scene")
+        print(f"[ComfyBlockout] load_scene node={node_id} → no saved scene")
         return web.json_response({"scene": None})
     except Exception as e:
-        print(f"[Comfy3D] load_scene FAILED: {e}")
+        print(f"[ComfyBlockout] load_scene FAILED: {e}")
         return web.json_response({"scene": None, "error": str(e)})
 
 

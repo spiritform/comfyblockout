@@ -7,3 +7,7 @@ Thumbs.db
 *.swo
 .idea/
 .vscode/
+
+# Local design mockups
+mockup.html
+mockup*.html
