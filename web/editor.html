@@ -2272,11 +2272,9 @@ let recording = false;
 function setRecordingMode(on) {
 	// canvas.captureStream() only sees WebGL pixels, NOT HTML overlays — so the
 	// panel, status pill, aspect frame, and timeline are invisible to the recording.
-	// Only hide things drawn TO the canvas: the grid and the transform gizmo.
-	grid.visible = !on;
-	// Gizmo stays hidden in preview mode regardless — the preview never selects
-	// objects, so revealing it after a recording would just dump a stale gizmo on top
-	// of the last selection from the editor session.
+	// We DO want the grid in the recorded video (it's part of the motion reference
+	// for downstream models). Just hide the transform gizmo so a selection bracket
+	// doesn't get baked into the clip.
 	transformHelper.visible = IS_PREVIEW ? false : !on;
 }
 
