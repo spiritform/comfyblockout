@@ -90,16 +90,41 @@ function buildDefaultScene() {
     };
 }
 
+const SEEDED_LS_KEY = "comfyblockout:seeded_uids";
+function loadSeededSet() {
+    try {
+        const raw = localStorage.getItem(SEEDED_LS_KEY);
+        return new Set(raw ? JSON.parse(raw) : []);
+    } catch { return new Set(); }
+}
+function markSeeded(nodeId) {
+    try {
+        const s = loadSeededSet();
+        s.add(nodeId);
+        localStorage.setItem(SEEDED_LS_KEY, JSON.stringify([...s]));
+    } catch {}
+}
+
 async function seedDefaultIfEmpty(nodeId) {
     try {
+        // Never re-seed a UID this browser has already seeded once. ComfyUI workflow-tab
+        // switching has been observed to destroy + recreate node widgets, which re-fires
+        // nodeCreated → seedDefaultIfEmpty. If for any reason /load_scene briefly returns
+        // empty (transient race, temp folder housekeeping, server reload), a re-seed
+        // would clobber the user's actual scene with a fresh default cube.
+        const seeded = loadSeededSet();
+        if (seeded.has(nodeId)) return false;
+
         const r = await fetch(`/comfyblockout/load_scene?node_id=${encodeURIComponent(nodeId)}`);
         const j = await r.json();
-        if (j.scene) return false; // already has saved state
+        if (j.scene) { markSeeded(nodeId); return false; } // already has saved state — record so we don't re-check
+
         await fetch("/comfyblockout/save_scene", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ node_id: nodeId, scene: buildDefaultScene() }),
         });
+        markSeeded(nodeId);
         return true;
     } catch (e) {
         console.warn("[ComfyBlockout] default-scene seed failed:", e);
