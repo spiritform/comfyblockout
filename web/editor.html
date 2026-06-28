@@ -182,7 +182,9 @@
 	.tl-btn.active { background: rgba(255,180,84,0.18); color: #ffd28a; }
 	.tl-btn.rec { color: #ff7a7a; }
 	.tl-btn.rec.recording { background: rgba(255,80,80,0.22); color: #fff; animation: pulse 1s infinite; }
+	.tl-btn.rec.rec-done { background: rgba(56,217,119,0.32); color: #fff; box-shadow: 0 0 12px rgba(56,217,119,0.6); animation: recDone 1.1s ease-out; }
 	@keyframes pulse { 50% { opacity: 0.6; } }
+	@keyframes recDone { 0% { transform: scale(1.15); } 100% { transform: scale(1); } }
 
 	#tl-scrub-wrap {
 		flex: 1; position: relative; height: 36px;
@@ -2269,6 +2271,33 @@ let mediaRecorder = null;
 let recordChunks = [];
 let recording = false;
 
+// Brief toast in the top-right of the viewport so the user knows the mp4 is on disk
+// and the IMAGE/VIDEO outputs are ready to queue. Auto-fades after ~2.4s.
+function flashRecordingDone(text) {
+	let el = document.getElementById("c3d-rec-toast");
+	if (!el) {
+		el = document.createElement("div");
+		el.id = "c3d-rec-toast";
+		Object.assign(el.style, {
+			position: "absolute", top: "14px", right: "14px", zIndex: "20",
+			background: "rgba(20,90,40,0.92)", color: "#d3ffd3",
+			padding: "8px 14px", borderRadius: "20px",
+			font: "11px Inter, sans-serif", letterSpacing: "0.04em",
+			border: "1px solid rgba(80,255,140,0.25)",
+			boxShadow: "0 4px 18px rgba(0,0,0,0.4)",
+			backdropFilter: "blur(8px)",
+			pointerEvents: "none", opacity: "0",
+			transition: "opacity 200ms ease",
+		});
+		(canvasWrap || document.body).appendChild(el);
+	}
+	el.textContent = text;
+	void el.offsetWidth;
+	el.style.opacity = "1";
+	clearTimeout(el._fadeTimer);
+	el._fadeTimer = setTimeout(() => { el.style.opacity = "0"; }, 2400);
+}
+
 function setRecordingMode(on) {
 	// canvas.captureStream() only sees WebGL pixels, NOT HTML overlays — so the
 	// panel, status pill, aspect frame, and timeline are invisible to the recording.
@@ -2284,6 +2313,28 @@ async function startRecording() {
 	const fps = parseInt(document.getElementById("fps").value, 10);
 
 	setRecordingMode(true);
+
+	// Bump the renderer backbuffer to a real video resolution. captureStream() picks up
+	// canvas.width/.height — if we recorded from the in-node preview (~480×270) the
+	// resulting mp4 was tiny and Seedance refused it ("too small: 482x272"). Keeping
+	// updateStyle=false means CSS dimensions stay the same so the user doesn't see a
+	// resize jump; the backbuffer just upsamples.
+	const RECORD_TARGET_W = 1280;
+	const asp = currentAspect();
+	const recRatio = asp ? asp.ratio : (canvas.width / canvas.height || 16 / 9);
+	const recW = RECORD_TARGET_W;
+	const recH = Math.max(1, Math.round(recW / recRatio));
+	const prevW = canvas.width;
+	const prevH = canvas.height;
+	const prevStyleW = canvas.style.width;
+	const prevStyleH = canvas.style.height;
+	const prevAspect = camera.aspect;
+	renderer.setSize(recW, recH, false);
+	canvas.style.width = prevStyleW;
+	canvas.style.height = prevStyleH;
+	camera.aspect = recW / recH;
+	camera.updateProjectionMatrix();
+
 	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
 	const useKeyframes = keyframes.length >= 2;
@@ -2312,13 +2363,25 @@ async function startRecording() {
 		recordedBlob = new Blob(recordChunks, { type: "video/webm" });
 		recording = false;
 		setRecordingMode(false);
+		// Restore the renderer back to its visible/aspect-fit size now that capture is done.
+		camera.aspect = prevAspect;
+		camera.updateProjectionMatrix();
+		renderer.setSize(prevW, prevH, false);
+		canvas.style.width = prevStyleW;
+		canvas.style.height = prevStyleH;
 		tlRec.classList.remove("recording");
 		statusEl.classList.remove("recording");
 		updateStatus(`uploading ${(recordedBlob.size/1024/1024).toFixed(2)} MB…`);
 		try {
 			const [j] = await Promise.all([uploadVideo(recordedBlob), saveScene()]);
 			if (j.success) {
-				updateStatus(`recording saved · ${j.mp4 ? "mp4" : "webm"} · ${(recordedBlob.size/1024/1024).toFixed(2)} MB`);
+				const label = `recording saved · ${j.mp4 ? "mp4" : "webm"} · ${(recordedBlob.size/1024/1024).toFixed(2)} MB`;
+				updateStatus(label);
+				flashRecordingDone(label);
+				// Flash the rec button green for ~1s so the user sees the success near
+				// where they clicked, on top of the toast in the top-right.
+				tlRec.classList.add("rec-done");
+				setTimeout(() => tlRec.classList.remove("rec-done"), 1100);
 				notifyParentSaved();
 			} else {
 				updateStatus(`upload failed: ${j.error}`);
