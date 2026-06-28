@@ -387,10 +387,13 @@ async def serve_asset(request):
     node_id = request.match_info["node_id"]
     asset_name = request.match_info["asset_name"]
     if "/" in asset_name or "\\" in asset_name or ".." in asset_name:
+        print(f"[ComfyBlockout] asset BAD-NAME node={node_id} name={asset_name}")
         return web.Response(status=400, text="Invalid asset name")
     path = _asset_dir(node_id) / asset_name
     if not path.exists():
+        print(f"[ComfyBlockout] asset 404 node={node_id} name={asset_name} → {path}")
         return web.Response(status=404, text="Not found")
+    print(f"[ComfyBlockout] asset 200 node={node_id} name={asset_name} ({path.stat().st_size} bytes)")
     return web.FileResponse(path, headers={"Content-Type": "application/octet-stream"})
 
 
