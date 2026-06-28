@@ -2391,6 +2391,8 @@ function serializeScene() {
 			fov: camera.fov,
 		},
 		aspect: aspectSelect.value,
+		duration: parseFloat(document.getElementById("duration").value),
+		fps: parseInt(document.getElementById("fps").value, 10),
 		env: {
 			preset: envSelect.value,
 			intensity: parseFloat(envIntensity.value),
@@ -2399,6 +2401,7 @@ function serializeScene() {
 			grid: grid.visible,
 			guides: guidesVisible,
 			bg: bgColorInput.value,
+			ar: arVisible,
 		},
 		trim: { start: trimStart, end: trimEnd },
 		keyframes: keyframes.map(k => ({
@@ -2470,6 +2473,17 @@ async function deserializeScene(state, opts = {}) {
 		handleResize();
 		updateAspectFrame();
 	}
+	if (typeof state.duration === "number") {
+		const el = document.getElementById("duration");
+		el.value = state.duration;
+		document.getElementById("duration-val").textContent = `${state.duration.toFixed(1)}s`;
+	}
+	if (typeof state.fps === "number") {
+		const el = document.getElementById("fps");
+		el.value = state.fps;
+		const fpsValEl = document.getElementById("fps-val");
+		if (fpsValEl) fpsValEl.textContent = String(state.fps);
+	}
 	if (state.env) {
 		if (state.env.preset) { envSelect.value = state.env.preset; setEnvironment(state.env.preset); }
 		if (typeof state.env.intensity === "number") {
@@ -2492,6 +2506,11 @@ async function deserializeScene(state, opts = {}) {
 		if (typeof state.viewport.bg === "string") {
 			bgColorInput.value = state.viewport.bg;
 			applyBgColor(state.viewport.bg);
+		}
+		if (typeof state.viewport.ar === "boolean") {
+			arVisible = state.viewport.ar;
+			arToggle.classList.toggle("active", arVisible);
+			updateAspectFrame();
 		}
 	}
 	if (state.trim && typeof state.trim.start === "number" && typeof state.trim.end === "number") {
