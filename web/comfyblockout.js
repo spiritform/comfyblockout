@@ -183,10 +183,14 @@ function getStableNodeId(node) {
         if (/^cb_[0-9a-f]+$/i.test(stored || "")) uid = stored;
     }
     if (!uid) {
+        // Claim the most recent UID. Tradeoff: in a multi-node workflow on tab return,
+        // every fresh nodeCreated would grab the same UID and collide. We accept that
+        // for the much more common single-node case where the alternative is orphaning
+        // the saved scene entirely. The previous "claim once per session" guard didn't
+        // help because ComfyUI Desktop replaces the node instance on tab switch — the
+        // old node's UID stayed marked claimed even though that instance was dead.
         const recent = loadRecentUids();
-        // Skip UIDs already claimed by another live node in this session.
-        const claimed = _claimedUidsThisSession;
-        const candidate = recent.find(u => /^cb_[0-9a-f]+$/i.test(u) && !claimed.has(u));
+        const candidate = recent.find(u => /^cb_[0-9a-f]+$/i.test(u));
         if (candidate) uid = candidate;
     }
     if (!uid) {
@@ -195,11 +199,8 @@ function getStableNodeId(node) {
     node.properties.comfyblockout_uid = uid;
     saveNodeUid(node.id, uid);
     pushRecentUid(uid);
-    _claimedUidsThisSession.add(uid);
     return uid;
 }
-
-const _claimedUidsThisSession = new Set();
 
 function buildWidget(node) {
     const nodeId = getStableNodeId(node);
