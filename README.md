@@ -2,8 +2,6 @@
 
 3D editor node for ComfyUI — build a blockout scene (primitives, GLB, FBX with animation, gaussian splats), record a keyframed camera path, and feed the rendered mp4 + start image + scene prompt straight into Seedance / Nano Banana / Flux / any downstream model.
 
-![Blockout → Nano Banana Pro pipeline](docs/nano-banana-pipeline.png)
-
 ![Fullscreen editor](docs/editor.png)
 
 ## What it does
@@ -11,10 +9,13 @@
 - Drop the **ComfyBlockout** node onto your canvas — it ships with a live in-node 3D viewport.
 - The node body shows a real-time three.js preview with a mini transport (record / play / rewind / add-key / clear) and a scrub timeline. Edit the scene without ever leaving the canvas.
 - Click **Edit** in the in-node bar → fullscreen 3D editor opens with the full toolset: add primitives, import meshes, sculpt a camera path, save as a named project.
+
+![Blockout → Nano Banana Pro pipeline](docs/nano-banana-pipeline.png)
+
 - Three outputs ready to wire downstream:
   - `image` (IMAGE) — first frame / snapshot, wires into Seedance `image_N` slots, Nano Banana `images`, Flux text-to-image start image
   - `video` (VIDEO) — recorded mp4, wires into Seedance `video_1`, Wan motion ref, LTX
-  - `prompt` (STRING) — editable system prompt, wires into Nano Banana / Flux / any text-to-image prompt input
+  - `prompt` (STRING) — editable system prompt, wires into Nano Banana / Flux / any text-to-image prompt input    
 
 ![ComfyBlockout node + Preview Image output](docs/node-preview.png)
 
