@@ -1182,6 +1182,7 @@ async function loadFromBytes(arrayBuffer, filename, opts = {}) {
 }
 
 async function loadFile(file) {
+	snapshotForUndo();
 	const arrayBuffer = await file.arrayBuffer();
 	const obj = await loadFromBytes(arrayBuffer, file.name);
 	if (!obj) return;
@@ -1195,8 +1196,61 @@ async function loadFile(file) {
 	}
 }
 
+// Undo stack: snapshot-based. Each entry is a serialized scene JSON string.
+// snapshotForUndo() is called at the start of a "commit" action (add/delete
+// object, drop import, add/delete keyframe, project ops) — NOT on continuous
+// changes like camera orbit, since flooding the stack with sub-degree rotations
+// makes a single Ctrl+Z feel useless. isUndoing gates re-entry so deserialize
+// during undo/redo doesn't push its own snapshot.
+const undoStack = [];
+const redoStack = [];
+const MAX_UNDO = 50;
+let isUndoing = false;
+
+function snapshotForUndo() {
+	if (isUndoing || restoringScene) return;
+	try {
+		const json = JSON.stringify(serializeScene());
+		if (undoStack.length && undoStack[undoStack.length - 1] === json) return;
+		undoStack.push(json);
+		if (undoStack.length > MAX_UNDO) undoStack.shift();
+		redoStack.length = 0;
+	} catch {}
+}
+
+async function performUndo() {
+	if (isUndoing || undoStack.length === 0) return;
+	isUndoing = true;
+	try {
+		const currentJson = JSON.stringify(serializeScene());
+		redoStack.push(currentJson);
+		if (redoStack.length > MAX_UNDO) redoStack.shift();
+		const target = undoStack.pop();
+		await deserializeScene(JSON.parse(target));
+		updateStatus("undo");
+	} finally {
+		isUndoing = false;
+	}
+}
+
+async function performRedo() {
+	if (isUndoing || redoStack.length === 0) return;
+	isUndoing = true;
+	try {
+		const currentJson = JSON.stringify(serializeScene());
+		undoStack.push(currentJson);
+		if (undoStack.length > MAX_UNDO) undoStack.shift();
+		const target = redoStack.pop();
+		await deserializeScene(JSON.parse(target));
+		updateStatus("redo");
+	} finally {
+		isUndoing = false;
+	}
+}
+
 function deleteObject(obj) {
 	if (!obj) return;
+	snapshotForUndo();
 	if (selected === obj) {
 		transform.detach();
 		selected = null;
@@ -1253,6 +1307,7 @@ function pickNamedBlockColor() {
 }
 
 function addPrimitive(kind) {
+	snapshotForUndo();
 	primCounters[kind] = (primCounters[kind] || 0) + 1;
 	const geom = PRIM_DEFS[kind]();
 	const mat = new THREE.MeshStandardMaterial({
@@ -1274,6 +1329,7 @@ function addPrimitive(kind) {
 
 function duplicateObject(obj) {
 	if (!obj) return;
+	snapshotForUndo();
 	const kind = obj.userData.primKind || "cube";
 	const dup = addPrimitive(kind);
 	dup.position.copy(obj.position).add(new THREE.Vector3(0.5, 0, 0.5));
@@ -1628,6 +1684,14 @@ window.addEventListener("keydown", (e) => {
 		else deleteObject(selected);
 	}
 	else if (e.key === "d" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); duplicateObject(selected); }
+	else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
+		e.preventDefault();
+		performUndo();
+	}
+	else if ((e.ctrlKey || e.metaKey) && ((e.shiftKey && e.key.toLowerCase() === "z") || e.key.toLowerCase() === "y")) {
+		e.preventDefault();
+		performRedo();
+	}
 });
 
 // Compute the largest aspect-fit rectangle inside the wrap. When an aspect ratio is
@@ -2130,6 +2194,7 @@ function renderKeyframeMarkers() {
 }
 
 function addKeyframe() {
+	snapshotForUndo();
 	const t = playhead;
 	keyframes = keyframes.filter(k => Math.abs(k.t - t) > 0.005);
 	const cap = captureCameraState();
@@ -2142,6 +2207,7 @@ function addKeyframe() {
 }
 
 function deleteKeyframes() {
+	snapshotForUndo();
 	if (selectedKey) {
 		keyframes = keyframes.filter(k => k !== selectedKey);
 		selectedKey = null;
