@@ -2414,6 +2414,7 @@ function serializeScene() {
 async function deserializeScene(state, opts = {}) {
 	if (!state) return false;
 	restoringScene = true;
+	cancelPendingSave();
 	try {
 	applyProjectName(state.projectName || null);
 	while (objects.length) deleteObject(objects[0]);
@@ -2520,6 +2521,7 @@ async function deserializeScene(state, opts = {}) {
 	return true;
 	} finally {
 		restoringScene = false;
+		cancelPendingSave(); // any orbit-change save queued during restore would now overwrite disk
 		// Flush one save with the fully-restored state so the wipe + per-add saves don't leave
 		// the backend with a partial snapshot. Skipped for remote sync to avoid ping-pong loops
 		// (the sender already persisted; re-saving would echo back through the forwarder).
@@ -2568,9 +2570,17 @@ window.addEventListener("message", async (ev) => {
 	try { await deserializeScene(ev.data.scene, { skipSave: true }); } catch {}
 });
 
+// Exposed so deserializeScene can cancel a queued save mid-restore — otherwise the
+// camera.position assignment inside deserialize fires orbit "change", which queues a
+// save that runs ~600ms later after restoringScene has cleared but possibly with a
+// partial scene state (eg if a GLB import async-failed silently). That save then
+// clobbers the on-disk character with imports=[]. Hence the gate.
+let cancelPendingSave = () => {};
 const saveSceneDebounced = (() => {
 	let t = null;
+	cancelPendingSave = () => { clearTimeout(t); t = null; };
 	return () => {
+		if (restoringScene) return; // suppress noisy saves triggered by camera updates during restore
 		clearTimeout(t);
 		t = setTimeout(saveScene, 600);
 	};
