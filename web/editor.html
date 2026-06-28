@@ -2845,22 +2845,15 @@ window.addEventListener("beforeunload", () => {
 	} catch {}
 });
 
-// Offscreen renderer used only for snapshots so the IMAGE output is high-res
-// (Seedance / Nano Banana / Flux need real pixels, not the 236×133 in-node preview).
-let snapshotRenderer = null;
+// High-res snapshot via a WebGLRenderTarget on the MAIN renderer so the env/PMREM
+// texture (bound to the main renderer's GL context) lights the scene identically to
+// the visible preview. A separate offscreen renderer can't see those GPU textures
+// and ends up rendering an underlit, washed-out frame.
 const SNAPSHOT_TARGET_W = 1920;
-function ensureSnapshotRenderer() {
-	if (!snapshotRenderer) {
-		const offCanvas = document.createElement("canvas");
-		snapshotRenderer = new THREE.WebGLRenderer({ canvas: offCanvas, antialias: true, alpha: false });
-		snapshotRenderer.setClearColor(0x07080b);
-		snapshotRenderer.setPixelRatio(1);
-		snapshotRenderer.outputColorSpace = renderer.outputColorSpace;
-		snapshotRenderer.toneMapping = renderer.toneMapping;
-		snapshotRenderer.toneMappingExposure = renderer.toneMappingExposure;
-	}
-	return snapshotRenderer;
-}
+let snapshotTarget = null;
+let snapshotCanvas = null;
+let snapshotCtx = null;
+let snapshotPixels = null;
 
 async function autoSnapshot() {
 	try {
@@ -2868,11 +2861,20 @@ async function autoSnapshot() {
 		const ratio = asp ? asp.ratio : (canvas.width / canvas.height || 16 / 9);
 		const w = SNAPSHOT_TARGET_W;
 		const h = Math.max(1, Math.round(w / ratio));
-		const r = ensureSnapshotRenderer();
-		r.setSize(w, h, false);
 
-		// Hide grid + gizmo on the shared scene for the duration of the offscreen render.
-		// We restore them immediately after — the main visible canvas never blanks.
+		if (!snapshotTarget || snapshotTarget.width !== w || snapshotTarget.height !== h) {
+			snapshotTarget?.dispose();
+			snapshotTarget = new THREE.WebGLRenderTarget(w, h, {
+				type: THREE.UnsignedByteType,
+				colorSpace: THREE.SRGBColorSpace,
+			});
+			snapshotCanvas = document.createElement("canvas");
+			snapshotCanvas.width = w;
+			snapshotCanvas.height = h;
+			snapshotCtx = snapshotCanvas.getContext("2d");
+			snapshotPixels = new Uint8Array(w * h * 4);
+		}
+
 		const gridWasVisible = grid.visible;
 		const helperWasVisible = transformHelper.visible;
 		grid.visible = false;
@@ -2881,14 +2883,26 @@ async function autoSnapshot() {
 		const prevAspect = camera.aspect;
 		camera.aspect = w / h;
 		camera.updateProjectionMatrix();
-		r.render(scene, camera);
+		renderer.setRenderTarget(snapshotTarget);
+		renderer.render(scene, camera);
+		renderer.setRenderTarget(null);
 		camera.aspect = prevAspect;
 		camera.updateProjectionMatrix();
 
 		grid.visible = gridWasVisible;
 		transformHelper.visible = helperWasVisible;
 
-		const blob = await new Promise(res => r.domElement.toBlob(res, "image/png"));
+		renderer.readRenderTargetPixels(snapshotTarget, 0, 0, w, h, snapshotPixels);
+		// WebGL pixels arrive bottom-up; canvas expects top-down. Flip rows in place.
+		const imageData = snapshotCtx.createImageData(w, h);
+		const stride = w * 4;
+		for (let y = 0; y < h; y++) {
+			const srcOff = (h - 1 - y) * stride;
+			imageData.data.set(snapshotPixels.subarray(srcOff, srcOff + stride), y * stride);
+		}
+		snapshotCtx.putImageData(imageData, 0, 0);
+
+		const blob = await new Promise(res => snapshotCanvas.toBlob(res, "image/png"));
 		if (!blob) return;
 		await uploadImage(blob);
 	} catch (e) {
