@@ -15,17 +15,34 @@ import folder_paths
 from server import PromptServer
 
 
-def _ffmpeg_available() -> bool:
+def _resolve_ffmpeg() -> str | None:
+    """Find a usable ffmpeg binary — PATH first, then imageio-ffmpeg's bundled copy.
+    Returns the absolute path (or 'ffmpeg' when it's on PATH) or None if nothing works."""
+    # 1) PATH
     try:
         r = subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)
-        return r.returncode == 0
+        if r.returncode == 0:
+            return "ffmpeg"
     except Exception:
-        return False
+        pass
+    # 2) imageio-ffmpeg ships a static ffmpeg binary; many ComfyUI installs already have it
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        r = subprocess.run([exe, "-version"], capture_output=True, timeout=5)
+        if r.returncode == 0:
+            print(f"[ComfyBlockout] using bundled ffmpeg from imageio-ffmpeg: {exe}")
+            return exe
+    except Exception:
+        pass
+    return None
 
 
-HAS_FFMPEG = _ffmpeg_available()
+FFMPEG_BIN = _resolve_ffmpeg()
+HAS_FFMPEG = FFMPEG_BIN is not None
 if not HAS_FFMPEG:
-    print("[ComfyBlockout] ffmpeg not found in PATH — uploads will stay as webm")
+    print("[ComfyBlockout] ffmpeg not found (PATH or imageio-ffmpeg) — recordings will stay as .webm. "
+          "Install ffmpeg or `pip install imageio-ffmpeg` so Seedance / Nano Banana can consume the .mp4 output.")
 
 try:
     import cv2
@@ -50,7 +67,8 @@ _prompt_store = {}
 DEFAULT_PROMPT = (
     "Render this blockout scene. Match the exact camera angle, composition, scale, "
     "and object orientation — but do not use the blockout to define the style, "
-    "colors, or creative direction."
+    "colors, or creative direction. Only use the grid as reference for the scene "
+    "perspective and not as an element to include in the generated image or video"
 )
 
 
@@ -196,7 +214,7 @@ async def save_video(request):
         if HAS_FFMPEG and suffix != ".mp4":
             mp4_path = _temp_dir() / f"node_{node_id}.mp4"
             try:
-                cmd = ["ffmpeg", "-y", "-i", str(raw_path)]
+                cmd = [FFMPEG_BIN, "-y", "-i", str(raw_path)]
                 if crop_filter:
                     cmd += ["-vf", crop_filter]
                 cmd += [

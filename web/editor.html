@@ -43,34 +43,107 @@
 	body.preview-mode #aspect-frame { border-color: rgba(255,255,255,0.05); }
 	body.preview-mode #viewport-area { padding: 0; }
 	body.preview-mode #canvas-wrap { padding: 0; }
+	/* Preview footer: transport on top, brand/time row below, grouped inside a
+	   single padded container so the whole group has equal space around it.
+	   canvas-wrap shrinks naturally above so the scene never renders behind it. */
+	#pv-footer {
+		display: none; flex-direction: column; gap: 4px;
+		padding: 6px; flex-shrink: 0;
+	}
+	body.preview-mode #pv-footer { display: flex; }
 	#preview-transport {
-		position: absolute; left: 8px; right: 8px; bottom: 8px;
-		display: none; align-items: center; gap: 4px; z-index: 30;
-		pointer-events: none;
+		display: flex; align-items: center; gap: 3px;
+		background: rgba(14,14,18,0.92);
+		border-radius: 6px; backdrop-filter: blur(6px);
+		padding: 12px 4px 4px; /* extra top padding leaves room for keyframe diamonds above the bar */
 	}
-	body.preview-mode #preview-transport { display: flex; }
-	.pv-group {
-		display: flex; align-items: center; gap: 2px; padding: 4px 6px;
-		background: rgba(14,14,18,0.85); border: 1px solid rgba(255,255,255,0.08);
-		border-radius: 999px; backdrop-filter: blur(6px); pointer-events: auto;
-	}
-	#preview-transport button {
-		background: none; border: none; cursor: pointer;
-		width: 26px; height: 26px;
+	.pv-btn {
+		background: rgba(255,255,255,0.06); border: none; border-radius: 4px;
+		cursor: pointer; color: #ccc;
+		width: 22px; height: 22px; flex-shrink: 0;
 		display: flex; align-items: center; justify-content: center;
+		font-family: inherit; font-weight: 700; font-size: 13px; line-height: 1;
+		user-select: none; -webkit-user-select: none;
 	}
+	.pv-btn:hover { background: rgba(255,255,255,0.12); }
+	.pv-btn.active { background: rgba(255,180,84,0.18); color: #ffd28a; }
+	/* Text glyph buttons (+ ×) — tuned individually so they balance the icon buttons. */
+	#pv-addkey { font-size: 14px; }
+	#pv-clearkey { font-size: 9px; margin-right: 4px; }
+	#pv-addkey.flash-green { animation: pvFlashGreen 0.5s ease-out; }
+	@keyframes pvFlashGreen {
+		0%   { background: #38d977; color: #fff; }
+		100% { background: rgba(255,255,255,0.06); color: #ccc; }
+	}
+	.pv-btn.rec { color: #ff7a7a; }
+	.pv-btn.rec.recording { background: rgba(255,80,80,0.22); color: #fff; animation: pulse 1s infinite; }
 	.pv-icon {
-		width: 16px; height: 16px; display: block;
+		width: 12px; height: 12px; display: block;
 		filter: brightness(0) invert(0.8);
 		transition: filter 0.12s;
 	}
-	#preview-transport button:hover .pv-icon { filter: brightness(0) invert(1); }
-	#preview-transport button.active .pv-icon { filter: brightness(0) invert(0.85) sepia(1) saturate(6) hue-rotate(330deg); }
-	#preview-transport button.rec .pv-icon { filter: brightness(0) invert(0.55) sepia(1) saturate(8) hue-rotate(330deg); }
-	#preview-transport button.rec.recording .pv-icon { filter: brightness(0) invert(1) sepia(1) saturate(8) hue-rotate(330deg); }
-	#preview-transport .pv-time {
-		font: 10px ui-monospace, monospace; color: rgba(255,255,255,0.55);
-		padding: 0 6px; min-width: 42px; text-align: center;
+	.pv-btn:hover .pv-icon { filter: brightness(0) invert(1); }
+	.pv-btn.active .pv-icon { filter: brightness(0) invert(0.85) sepia(1) saturate(6) hue-rotate(330deg); }
+	.pv-btn.rec .pv-icon { filter: brightness(0) invert(0.55) sepia(1) saturate(8) hue-rotate(330deg); }
+	.pv-btn.rec.recording .pv-icon { filter: brightness(0) invert(1) sepia(1) saturate(8) hue-rotate(330deg); }
+	/* Brand + time row sits below the transport, no chrome of its own. */
+	#pv-time-strip {
+		display: flex; align-items: baseline; justify-content: space-between;
+		pointer-events: none;
+		padding: 0 4px;
+		user-select: none; -webkit-user-select: none;
+	}
+	#pv-time-strip .pv-brand {
+		font: 10px "Inter", -apple-system, sans-serif;
+		letter-spacing: 0.01em;
+		color: rgba(255,255,255,0.7);
+	}
+	#pv-time-strip .pv-brand-by {
+		color: rgba(255,255,255,0.35);
+	}
+	#pv-time-strip #pv-time {
+		font: 10px ui-monospace, monospace; letter-spacing: 0.04em;
+		color: rgba(255,255,255,0.55);
+	}
+	#pv-scrub-wrap {
+		flex: 1; min-width: 20px; position: relative; height: 22px;
+		background: #2a2a32; border-radius: 4px;
+		/* overflow visible — so playhead + keyframes extend full bar height even at
+		   the rounded corners instead of being clipped to a chevron sliver. */
+		overflow: visible; cursor: ew-resize;
+		user-select: none; -webkit-user-select: none;
+	}
+	#pv-playhead {
+		position: absolute; top: 0; bottom: 0; width: 4px;
+		background: #ffd700; z-index: 10;
+		transform: translateX(-50%);
+		cursor: ew-resize;
+		user-select: none; -webkit-user-select: none;
+		-webkit-user-drag: none;
+	}
+	/* Invisible hit zone so the playhead is grabbable beyond its 4px visible bar. */
+	#pv-playhead::after {
+		content: ""; position: absolute; left: -5px; top: 0; bottom: 0;
+		width: 14px; cursor: ew-resize;
+	}
+	/* Keyframes render as a small green diamond ABOVE the bar (the click target) +
+	   a thin vertical line INSIDE the bar (visual only, doesn't block playhead grabs). */
+	.pv-key {
+		position: absolute; top: -11px;
+		width: 6px; height: 6px;
+		background: #38d977;
+		transform: translateX(-50%) rotate(45deg);
+		cursor: grab; z-index: 12;
+		user-select: none; -webkit-user-select: none;
+	}
+	.pv-key:hover { background: #5ce594; }
+	.pv-key.selected { background: #fff; }
+	.pv-key.dragging { cursor: grabbing; }
+	.pv-key-line {
+		position: absolute; top: 0; bottom: 0;
+		width: 1px; background: rgba(255,255,255,0.22);
+		transform: translateX(-50%);
+		pointer-events: none; z-index: 4;
 	}
 	.tl-btn {
 		background: rgba(255,255,255,0.06); border: none; border-radius: 6px;
@@ -450,7 +523,7 @@
 
 		<div class="section">
 			<div class="section-label">System Prompt (String Output)</div>
-			<textarea id="prompt-text" rows="4" placeholder="Render this blockout scene. Match the exact camera angle, composition, scale, and object orientation — but do not use the blockout to define the style, colors, or creative direction."></textarea>
+			<textarea id="prompt-text" rows="4" placeholder="Render this blockout scene. Match the exact camera angle, composition, scale, and object orientation — but do not use the blockout to define the style, colors, or creative direction. Only use the grid as reference for the scene perspective and not as an element to include in the generated image or video"></textarea>
 		</div>
 
 		<div class="section">
@@ -484,22 +557,27 @@
 			<canvas id="renderCanvas"></canvas>
 			<div id="aspect-frame" class="no-guides"><span class="v1"></span><span class="v2"></span><span class="label" id="aspect-label">16:9</span></div>
 			<div id="status">idle · 0 objects</div>
-			<div id="preview-transport">
-				<div class="pv-group">
-					<button id="pv-edit" title="Edit Scene"><img class="pv-icon" src="/extensions/ComfyBlockout/icons/edit.png" alt="edit"></button>
-				</div>
-				<div style="flex:1"></div>
-				<div class="pv-group">
-					<button id="pv-clean" title="Clean view — hide grid + guides"><img class="pv-icon" src="/extensions/ComfyBlockout/icons/clean.png" alt="clean"></button>
-					<button id="pv-rewind" title="Rewind"><img class="pv-icon" src="/extensions/ComfyBlockout/icons/rewind.svg" alt="rewind"></button>
-					<button id="pv-play" title="Play / pause"><img class="pv-icon" src="/extensions/ComfyBlockout/icons/play.svg" alt="play"></button>
-					<button class="rec" id="pv-rec" title="Record video"><img class="pv-icon" src="/extensions/ComfyBlockout/icons/record.svg" alt="record"></button>
-					<span class="pv-time" id="pv-time">0.00s</span>
-				</div>
-			</div>
 			<div id="info-block" style="position:absolute;top:6px;left:6px;background:rgba(20,20,24,0.85);border-radius:6px;z-index:11;display:flex;flex-direction:column;align-items:flex-start">
 				<button id="info-btn" title="Scene info" style="width:24px;height:24px;border:none;background:transparent;color:rgba(255,255,255,0.55);font:11px serif;font-style:italic;font-weight:600;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center">i</button>
 				<div id="debug-hud" style="color:rgba(255,255,255,0.45);font:10px ui-monospace,monospace;padding:0 12px 10px 12px;line-height:1.6;white-space:pre;display:none;min-width:200px"></div>
+			</div>
+		</div>
+		<div id="pv-footer">
+			<div id="preview-transport">
+				<button id="pv-edit" class="pv-btn" title="Edit Scene"><img class="pv-icon" src="/extensions/ComfyBlockout/icons/edit.png" alt="edit"></button>
+				<button class="pv-btn rec" id="pv-rec" title="Record video"><img class="pv-icon" src="/extensions/ComfyBlockout/icons/record.svg" alt="record"></button>
+				<button class="pv-btn" id="pv-play" title="Play / pause"><img class="pv-icon" src="/extensions/ComfyBlockout/icons/play.svg" alt="play"></button>
+				<button class="pv-btn" id="pv-rewind" title="Rewind"><img class="pv-icon" src="/extensions/ComfyBlockout/icons/rewind.svg" alt="rewind"></button>
+				<button class="pv-btn pv-glyph" id="pv-addkey" title="Add keyframe at playhead">+</button>
+				<button class="pv-btn pv-glyph" id="pv-clearkey" title="Delete selected keyframe (or all)">✕</button>
+				<div id="pv-scrub-wrap">
+					<div id="pv-keys"></div>
+					<div id="pv-playhead" style="left:0"></div>
+				</div>
+			</div>
+			<div id="pv-time-strip">
+				<span class="pv-brand">ComfyBlockout 1.0 <span class="pv-brand-by">by</span> spiritform</span>
+				<span id="pv-time">0.00s / 5s</span>
 			</div>
 		</div>
 		<div id="timeline">
@@ -1694,6 +1772,8 @@ function currentDuration() {
 function setPlayhead(t) {
 	playhead = Math.max(0, Math.min(1, t));
 	tlPlayhead.style.left = `${playhead * 100}%`;
+	const pvPh = document.getElementById("pv-playhead");
+	if (pvPh) pvPh.style.left = `${playhead * 100}%`;
 	const dur = currentDuration();
 	tlTime.textContent = `${(playhead * dur).toFixed(2)}s / ${dur.toFixed(2)}s`;
 }
@@ -1717,8 +1797,159 @@ function sampleCameraAt(t) {
 	return keyframes[keyframes.length - 1];
 }
 
+const EASE_OPTIONS = [
+	{ id: "linear",    label: "linear" },
+	{ id: "easeIn",    label: "ease in" },
+	{ id: "easeOut",   label: "ease out" },
+	{ id: "easeInOut", label: "ease in/out" },
+];
+function showEaseMenu(k, x, y) {
+	// Tear down any existing menu so right-clicking a new key replaces the old one.
+	document.querySelectorAll(".ease-menu").forEach(el => el.remove());
+	const menu = document.createElement("div");
+	menu.className = "ease-menu";
+	Object.assign(menu.style, {
+		position: "fixed", left: `${x}px`, top: `${y}px`,
+		zIndex: "9999",
+		background: "#1a1a20", border: "1px solid rgba(255,255,255,0.06)",
+		borderRadius: "6px", padding: "4px 0",
+		minWidth: "160px",
+		boxShadow: "0 8px 28px rgba(0,0,0,0.6)",
+		fontFamily: "Inter, -apple-system, sans-serif", fontSize: "11px", color: "#ddd",
+		userSelect: "none",
+	});
+	const header = document.createElement("div");
+	header.textContent = "INCOMING EASE";
+	Object.assign(header.style, {
+		padding: "6px 14px 4px", fontSize: "9px",
+		color: "rgba(255,255,255,0.4)", letterSpacing: "0.12em",
+	});
+	menu.appendChild(header);
+	const current = k.ease || "easeInOut";
+	for (const opt of EASE_OPTIONS) {
+		const row = document.createElement("div");
+		const active = opt.id === current;
+		Object.assign(row.style, {
+			display: "flex", alignItems: "center", gap: "8px",
+			padding: "5px 14px", cursor: "pointer",
+			color: active ? "#ffd28a" : "#ddd",
+		});
+		const tick = document.createElement("span");
+		tick.textContent = active ? "✓" : "";
+		Object.assign(tick.style, { width: "10px", textAlign: "center", fontSize: "10px", color: "#ffd28a" });
+		const label = document.createElement("span");
+		label.textContent = opt.label;
+		row.append(tick, label);
+		row.onmouseenter = () => row.style.background = "rgba(255,255,255,0.06)";
+		row.onmouseleave = () => row.style.background = "transparent";
+		row.onclick = () => {
+			k.ease = opt.id;
+			renderKeyframeMarkers();
+			saveSceneDebounced?.();
+			cleanup();
+		};
+		menu.appendChild(row);
+	}
+	const divider = document.createElement("div");
+	Object.assign(divider.style, {
+		height: "1px", background: "rgba(255,255,255,0.06)", margin: "4px 0",
+	});
+	menu.appendChild(divider);
+	const del = document.createElement("div");
+	del.textContent = "delete keyframe";
+	Object.assign(del.style, {
+		padding: "5px 14px 6px 32px", cursor: "pointer",
+		color: "#ddd",
+	});
+	del.onmouseenter = () => { del.style.background = "rgba(255,80,80,0.14)"; del.style.color = "#ff8a8a"; };
+	del.onmouseleave = () => { del.style.background = "transparent"; del.style.color = "#ddd"; };
+	del.onclick = () => {
+		keyframes = keyframes.filter(x => x !== k);
+		if (selectedKey === k) selectedKey = null;
+		renderKeyframeMarkers();
+		saveSceneDebounced?.();
+		cleanup();
+	};
+	menu.appendChild(del);
+	document.body.appendChild(menu);
+	// Clamp to viewport so it never opens off-screen at the right edge.
+	const rect = menu.getBoundingClientRect();
+	if (rect.right > window.innerWidth) menu.style.left = `${window.innerWidth - rect.width - 4}px`;
+	if (rect.bottom > window.innerHeight) menu.style.top = `${window.innerHeight - rect.height - 4}px`;
+	const onDocDown = (ev) => { if (!menu.contains(ev.target)) cleanup(); };
+	const onKey = (ev) => { if (ev.key === "Escape") cleanup(); };
+	function cleanup() {
+		menu.remove();
+		document.removeEventListener("pointerdown", onDocDown, true);
+		document.removeEventListener("keydown", onKey);
+	}
+	setTimeout(() => {
+		document.addEventListener("pointerdown", onDocDown, true);
+		document.addEventListener("keydown", onKey);
+	}, 0);
+}
+
 function renderKeyframeMarkers() {
 	tlKeys.innerHTML = "";
+	// Mirror keyframes into the preview transport's mini timeline + wire drag/select.
+	const pvKeysEl = document.getElementById("pv-keys");
+	const pvScrubEl = document.getElementById("pv-scrub-wrap");
+	if (pvKeysEl && pvScrubEl) {
+		pvKeysEl.innerHTML = "";
+		for (const k of keyframes) {
+			// Grey vertical line inside the bar marking the keyframe position (visual only).
+			const line = document.createElement("div");
+			line.className = "pv-key-line";
+			line.style.left = `${k.t * 100}%`;
+			pvKeysEl.appendChild(line);
+
+			// Green diamond above the bar — the interactive target (drag + right-click).
+			const pm = document.createElement("div");
+			pm.className = "pv-key" + (k === selectedKey ? " selected" : "");
+			pm.style.left = `${k.t * 100}%`;
+			pvKeysEl.appendChild(pm);
+
+			let dragStartX, dragStartT, didDrag = false;
+			pm.addEventListener("pointerdown", e => {
+				if (e.button !== 0) { e.stopPropagation(); return; } // right-click falls through to contextmenu
+				e.stopPropagation();
+				stopPreview();
+				selectedKey = k;
+				for (const el of pvKeysEl.querySelectorAll(".pv-key")) el.classList.remove("selected");
+				pm.classList.add("selected");
+				dragStartX = e.clientX;
+				dragStartT = k.t;
+				didDrag = false;
+				pm.classList.add("dragging");
+				pm.setPointerCapture(e.pointerId);
+			});
+			pm.addEventListener("pointermove", e => {
+				if (!pm.hasPointerCapture(e.pointerId)) return;
+				const rect = pvScrubEl.getBoundingClientRect();
+				const dx = (e.clientX - dragStartX) / rect.width;
+				if (Math.abs(dx) > 0.005) didDrag = true;
+				const gap = trimGap();
+				k.t = Math.max(trimStart + gap, Math.min(trimEnd - gap, dragStartT + dx));
+				pm.style.left = `${k.t * 100}%`;
+				line.style.left = `${k.t * 100}%`;
+			});
+			pm.addEventListener("pointerup", e => {
+				if (!pm.hasPointerCapture(e.pointerId)) return;
+				pm.releasePointerCapture(e.pointerId);
+				pm.classList.remove("dragging");
+				if (didDrag) {
+					keyframes.sort((a, b) => a.t - b.t);
+					renderKeyframeMarkers();
+				} else {
+					// Click without drag = select + jump playhead to this keyframe.
+					stopPreview();
+					setPlayhead(k.t);
+					applyCameraState(k);
+				}
+			});
+			// Right-click ease menu is an editor-only feature; preview stays focused on playback.
+		}
+	}
 	for (const k of keyframes) {
 		const m = document.createElement("div");
 		m.className = "tl-key" + (k === selectedKey ? " selected" : "");
@@ -1727,6 +1958,7 @@ function renderKeyframeMarkers() {
 
 		let dragStartX, dragStartT, didDrag = false;
 		m.addEventListener("pointerdown", e => {
+			if (e.button !== 0) { e.stopPropagation(); return; } // let right-click reach contextmenu cleanly
 			e.stopPropagation();
 			// Set selection without rebuilding markers — pointercapture stays valid on this element.
 			// Just swap the "selected" class on the live elements.
@@ -1750,17 +1982,20 @@ function renderKeyframeMarkers() {
 			m.style.left = `${k.t * 100}%`;
 		});
 		m.addEventListener("pointerup", e => {
+			if (!m.hasPointerCapture(e.pointerId)) return;
 			m.releasePointerCapture(e.pointerId);
 			m.classList.remove("dragging");
 			if (didDrag) {
 				keyframes.sort((a, b) => a.t - b.t);
 				renderKeyframeMarkers();
 				saveSceneDebounced?.();
-			} else {
-				setPlayhead(k.t);
-				const s = sampleCameraAt(k.t);
-				if (s) applyCameraState(s);
 			}
+			// Click without drag = select only — don't move the playhead.
+		});
+		m.addEventListener("contextmenu", e => {
+			e.preventDefault();
+			e.stopPropagation();
+			showEaseMenu(k, e.clientX, e.clientY);
 		});
 
 		tlKeys.appendChild(m);
@@ -1773,7 +2008,8 @@ function addKeyframe() {
 	const cap = captureCameraState();
 	keyframes.push({ t, pos: cap.pos, target: cap.target, fov: cap.fov, ease: "easeInOut" });
 	keyframes.sort((a, b) => a.t - b.t);
-	selectedKey = keyframes.find(k => Math.abs(k.t - t) < 0.001);
+	// Don't auto-select — newly created keys stay green; selection is an explicit user action.
+	selectedKey = null;
 	renderKeyframeMarkers();
 	saveSceneDebounced?.();
 }
@@ -1907,7 +2143,10 @@ function setRecordingMode(on) {
 	// panel, status pill, aspect frame, and timeline are invisible to the recording.
 	// Only hide things drawn TO the canvas: the grid and the transform gizmo.
 	grid.visible = !on;
-	transformHelper.visible = !on;
+	// Gizmo stays hidden in preview mode regardless — the preview never selects
+	// objects, so revealing it after a recording would just dump a stale gizmo on top
+	// of the last selection from the editor session.
+	transformHelper.visible = IS_PREVIEW ? false : !on;
 }
 
 async function startRecording() {
@@ -2519,18 +2758,11 @@ if (IS_PREVIEW) {
 	canvas.addEventListener("pointerdown", () => canvas.style.cursor = "grabbing");
 	canvas.addEventListener("pointerup", () => canvas.style.cursor = "grab");
 
-	const pvClean = document.getElementById("pv-clean");
 	const pvRewind = document.getElementById("pv-rewind");
 	const pvPlay = document.getElementById("pv-play");
 	const pvRec = document.getElementById("pv-rec");
 	const pvTime = document.getElementById("pv-time");
-	let cleanView = false;
-	pvClean.addEventListener("click", () => {
-		cleanView = !cleanView;
-		grid.visible = !cleanView;
-		aspectFrame.style.display = cleanView ? "none" : "block";
-		pvClean.classList.toggle("active", cleanView);
-	});
+	const pvScrub = document.getElementById("pv-scrub-wrap");
 	pvRewind.addEventListener("click", rewindTransport);
 	pvPlay.addEventListener("click", () => isPlayingPreview ? stopPreview() : playPreview());
 	pvRec.addEventListener("click", () => {
@@ -2541,10 +2773,60 @@ if (IS_PREVIEW) {
 	document.getElementById("pv-edit").addEventListener("click", () => {
 		window.parent?.postMessage({ source: "comfyblockout-editor", type: "request-edit", node_id: NODE_ID }, "*");
 	});
+	document.getElementById("pv-addkey").addEventListener("click", () => {
+		addKeyframe();
+		const btn = document.getElementById("pv-addkey");
+		btn.classList.remove("flash-green");
+		void btn.offsetWidth; // force reflow so the animation restarts on repeat clicks
+		btn.classList.add("flash-green");
+	});
+	document.getElementById("pv-clearkey").addEventListener("click", deleteKeyframes);
+	// Mini timeline interaction:
+	// - left-click + drag on the playhead: drag from its current position
+	// - left-click on the bar bg: no-op (no snap-scrub)
+	// - keyframes handle their own pointerdown / contextmenu
+	const pvPh = document.getElementById("pv-playhead");
+	pvScrub.addEventListener("pointerdown", e => {
+		if (e.button !== 0) return; // right-click reserved for keyframe contextmenu pass-through
+		if (e.target.closest(".pv-key")) return; // key handles itself
+		const grabbingPlayhead = e.target === pvPh || pvPh.contains(e.target);
+		if (!grabbingPlayhead) return; // only drag the playhead — no click-to-scrub
+		stopPreview();
+		const rect = pvScrub.getBoundingClientRect();
+		const gap = trimGap();
+		const startCursorX = e.clientX;
+		const startPlayheadT = playhead;
+		const SNAP_PX = 6; // pixels — hold Shift to bypass snap for precise scrubs
+		const drag = ev => {
+			const dx = (ev.clientX - startCursorX) / rect.width;
+			const raw = Math.max(0, Math.min(1, startPlayheadT + dx));
+			let t = Math.max(trimStart + gap, Math.min(trimEnd - gap, raw));
+			if (!ev.shiftKey) {
+				const snapTol = SNAP_PX / rect.width;
+				let bestDist = Infinity, snapped = t;
+				for (const k of keyframes) {
+					const d = Math.abs(k.t - t);
+					if (d < bestDist && d <= snapTol) { bestDist = d; snapped = k.t; }
+				}
+				t = snapped;
+			}
+			setPlayhead(t);
+			const s = sampleCameraAt(t);
+			if (s) applyCameraState(s);
+		};
+		const onUp = () => {
+			window.removeEventListener("pointermove", drag);
+			window.removeEventListener("pointerup", onUp);
+		};
+		window.addEventListener("pointermove", drag);
+		window.addEventListener("pointerup", onUp);
+	});
 	const pvPlayIcon = pvPlay.querySelector(".pv-icon");
 	setInterval(() => {
-		const t = playhead * currentDuration();
-		pvTime.textContent = `${t.toFixed(2)}s · ${objects.length}o`;
+		const dur = currentDuration();
+		const t = playhead * dur;
+		const durStr = Number.isInteger(dur) ? `${dur}s` : `${dur.toFixed(1)}s`;
+		pvTime.textContent = `${t.toFixed(2)}s / ${durStr}`;
 		const want = `/extensions/ComfyBlockout/icons/${isPlayingPreview ? "pause" : "play"}.svg`;
 		if (!pvPlayIcon.src.endsWith(want)) pvPlayIcon.src = want;
 	}, 100);
