@@ -395,28 +395,33 @@ async def save_scene(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
+_NO_CACHE = {"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"}
+
+
 @PromptServer.instance.routes.get("/comfyblockout/load_scene")
 async def load_scene(request):
     try:
         node_id = request.query.get("node_id", "").strip()
         if not node_id:
-            return web.json_response({"scene": None})
+            return web.json_response({"scene": None}, headers=_NO_CACHE)
         if node_id in _scene_store:
             s = _scene_store[node_id]
             n_prim = len(s.get("primitives", [])) if isinstance(s, dict) else 0
-            print(f"[ComfyBlockout] load_scene node={node_id} from memory · primitives={n_prim}")
-            return web.json_response({"scene": s})
+            n_imp = len(s.get("imports", [])) if isinstance(s, dict) else 0
+            print(f"[ComfyBlockout] load_scene node={node_id} from memory · primitives={n_prim} imports={n_imp}")
+            return web.json_response({"scene": s}, headers=_NO_CACHE)
         scene_path = _temp_dir() / f"node_{node_id}.scene.json"
         if scene_path.exists():
             s = json.loads(scene_path.read_text(encoding="utf-8"))
             n_prim = len(s.get("primitives", [])) if isinstance(s, dict) else 0
-            print(f"[ComfyBlockout] load_scene node={node_id} from disk · primitives={n_prim}")
-            return web.json_response({"scene": s})
+            n_imp = len(s.get("imports", [])) if isinstance(s, dict) else 0
+            print(f"[ComfyBlockout] load_scene node={node_id} from disk · primitives={n_prim} imports={n_imp}")
+            return web.json_response({"scene": s}, headers=_NO_CACHE)
         print(f"[ComfyBlockout] load_scene node={node_id} → no saved scene")
-        return web.json_response({"scene": None})
+        return web.json_response({"scene": None}, headers=_NO_CACHE)
     except Exception as e:
         print(f"[ComfyBlockout] load_scene FAILED: {e}")
-        return web.json_response({"scene": None, "error": str(e)})
+        return web.json_response({"scene": None, "error": str(e)}, headers=_NO_CACHE)
 
 
 @PromptServer.instance.routes.get("/comfyblockout/video_url")

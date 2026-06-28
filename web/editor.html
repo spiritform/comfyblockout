@@ -2366,11 +2366,11 @@ async function deserializeScene(state) {
 	}
 
 	for (const im of (state.imports || [])) {
+		const ext = (im.filename?.split(".").pop() || "").toLowerCase();
+		const url = `/comfyblockout/asset/${encodeURIComponent(NODE_ID)}/${encodeURIComponent(im.assetId)}.${ext}`;
 		try {
-			const ext = (im.filename?.split(".").pop() || "").toLowerCase();
-			const url = `/comfyblockout/asset/${encodeURIComponent(NODE_ID)}/${encodeURIComponent(im.assetId)}.${ext}`;
 			const r = await fetch(url);
-			if (!r.ok) { console.warn(`[ComfyBlockout] missing asset ${im.assetId} (${r.status})`); continue; }
+			if (!r.ok) { console.warn(`[ComfyBlockout] missing asset ${im.assetId} (${r.status}) ${url}`); continue; }
 			const buf = await r.arrayBuffer();
 			await loadFromBytes(buf, im.filename, {
 				restoring: true,
@@ -2385,8 +2385,9 @@ async function deserializeScene(state) {
 			});
 			const obj = objects[objects.length - 1];
 			if (obj && im.visible === false) obj.visible = false;
+			console.log(`[ComfyBlockout] restored import ${im.kind || ext} ${im.filename} (${buf.byteLength} bytes) from ${url}`);
 		} catch (e) {
-			console.warn(`[ComfyBlockout] failed to restore import ${im.assetId}:`, e);
+			console.error(`[ComfyBlockout] failed to restore import ${im.assetId} (${im.filename}) from ${url}:`, e);
 		}
 	}
 
@@ -2484,10 +2485,12 @@ const saveSceneDebounced = (() => {
 
 async function loadScene() {
 	try {
-		const r = await fetch(`/comfyblockout/load_scene?node_id=${encodeURIComponent(NODE_ID)}`);
+		const url = `/comfyblockout/load_scene?node_id=${encodeURIComponent(NODE_ID)}&t=${Date.now()}`;
+		const r = await fetch(url, { cache: "no-store" });
 		const j = await r.json();
+		console.log(`[ComfyBlockout] load_scene (${IS_PREVIEW ? "preview" : "editor"}) node=${NODE_ID}`,
+			j.scene ? { primitives: j.scene.primitives?.length, imports: j.scene.imports?.length, raw: j.scene } : "(empty)");
 		if (j.scene) {
-			console.log("[ComfyBlockout] restoring scene:", j.scene);
 			return await deserializeScene(j.scene);
 		}
 	} catch (e) {

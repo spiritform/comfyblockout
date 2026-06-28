@@ -142,6 +142,7 @@ function refreshThumbnail(node, ui) {
     const fresh = document.createElement("iframe");
     fresh.src = previewUrl(ui.nodeId);
     fresh.allow = "autoplay";
+    console.log("[ComfyBlockout] refreshThumbnail node", ui.nodeId, "→", fresh.src);
     ui.previewFrame?.remove();
     ui.thumb.appendChild(fresh);
     ui.previewFrame = fresh;
