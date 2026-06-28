@@ -2378,6 +2378,14 @@ async function startRecording() {
 	const duration = parseFloat(document.getElementById("duration").value);
 	const fps = parseInt(document.getElementById("fps").value, 10);
 
+	// Reset every FBX animation mixer to t=0 so the recording captures the full clip
+	// from its first frame instead of wherever the animation happened to be when the
+	// user clicked record. Without this the mp4 starts mid-cycle.
+	for (const m of fbxMixers) {
+		m.timeScale = 1;
+		m.setTime(0);
+	}
+
 	setRecordingMode(true);
 
 	// Bump the renderer backbuffer to a real video resolution. captureStream() picks up
