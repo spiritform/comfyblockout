@@ -66,9 +66,9 @@ _prompt_store = {}
 
 DEFAULT_PROMPT = (
     "Render this blockout scene. Match the exact camera angle, composition, scale, "
-    "and object orientation — but do not use the blockout to define the style, "
-    "colors, or creative direction. Only use the grid as reference for the scene "
-    "perspective and not as an element to include in the generated image or video"
+    "aspect ration and object orientations — but do not use the blockout to define "
+    "the style, colors, or creative direction. Only use the grid as reference for "
+    "the scene perspective and not as an element to include in the generated image or video"
 )
 
 

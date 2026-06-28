@@ -145,6 +145,22 @@
 		transform: translateX(-50%);
 		pointer-events: none; z-index: 4;
 	}
+	/* Trim region — dimmed pre/post + 3px orange handles, scaled down from the editor */
+	#pv-trim-pre, #pv-trim-post {
+		position: absolute; top: 0; bottom: 0;
+		background: rgba(0, 0, 0, 0.85);
+		pointer-events: none; z-index: 2; border-radius: 4px;
+	}
+	#pv-trim-pre { left: 0; }
+	#pv-trim-post { right: 0; }
+	.pv-trim-handle {
+		position: absolute; top: 0; bottom: 0; width: 3px;
+		background: #ff8c1a; cursor: ew-resize; z-index: 6;
+	}
+	#pv-trim-start { transform: translateX(-100%); }
+	#pv-trim-end { transform: translateX(0); }
+	.pv-trim-handle:hover { background: #ffb454; box-shadow: 0 0 4px rgba(255,180,80,0.7); }
+	.pv-trim-handle.dragging { background: #ffd28a; }
 	.tl-btn {
 		background: rgba(255,255,255,0.06); border: none; border-radius: 6px;
 		color: #ccc; font-size: 16px; font-weight: 700; cursor: pointer;
@@ -565,7 +581,7 @@
 
 		<div class="section">
 			<div class="section-label">System Prompt (String Output)</div>
-			<textarea id="prompt-text" rows="4" placeholder="Render this blockout scene. Match the exact camera angle, composition, scale, and object orientation — but do not use the blockout to define the style, colors, or creative direction. Only use the grid as reference for the scene perspective and not as an element to include in the generated image or video"></textarea>
+			<textarea id="prompt-text" rows="4" placeholder="Render this blockout scene. Match the exact camera angle, composition, scale, aspect ration and object orientations — but do not use the blockout to define the style, colors, or creative direction. Only use the grid as reference for the scene perspective and not as an element to include in the generated image or video"></textarea>
 		</div>
 	</div>
 
@@ -588,7 +604,11 @@
 				<button class="pv-btn pv-glyph" id="pv-addkey" title="Add keyframe at playhead">+</button>
 				<button class="pv-btn pv-glyph" id="pv-clearkey" title="Delete selected keyframe (or all)">✕</button>
 				<div id="pv-scrub-wrap">
+					<div id="pv-trim-pre" style="width:0%"></div>
+					<div id="pv-trim-post" style="width:0%"></div>
 					<div id="pv-keys"></div>
+					<div class="pv-trim-handle" id="pv-trim-start" style="left:0%" title="Trim start"></div>
+					<div class="pv-trim-handle" id="pv-trim-end" style="left:100%" title="Trim end"></div>
 					<div id="pv-playhead" style="left:0"></div>
 				</div>
 			</div>
@@ -1723,12 +1743,23 @@ const tlTrimPre = document.getElementById("tl-trim-pre");
 const tlTrimPost = document.getElementById("tl-trim-post");
 const tlTrimStart = document.getElementById("tl-trim-start");
 const tlTrimEnd = document.getElementById("tl-trim-end");
+const pvTrimPre = document.getElementById("pv-trim-pre");
+const pvTrimPost = document.getElementById("pv-trim-post");
+const pvTrimStart = document.getElementById("pv-trim-start");
+const pvTrimEnd = document.getElementById("pv-trim-end");
 
 function refreshTrimUI() {
-	tlTrimStart.style.left = `${trimStart * 100}%`;
-	tlTrimEnd.style.left = `${trimEnd * 100}%`;
-	tlTrimPre.style.width = `${trimStart * 100}%`;
-	tlTrimPost.style.width = `${(1 - trimEnd) * 100}%`;
+	const startPct = `${trimStart * 100}%`;
+	const endPct = `${trimEnd * 100}%`;
+	const postPct = `${(1 - trimEnd) * 100}%`;
+	if (tlTrimStart) tlTrimStart.style.left = startPct;
+	if (tlTrimEnd) tlTrimEnd.style.left = endPct;
+	if (tlTrimPre) tlTrimPre.style.width = startPct;
+	if (tlTrimPost) tlTrimPost.style.width = postPct;
+	if (pvTrimStart) pvTrimStart.style.left = startPct;
+	if (pvTrimEnd) pvTrimEnd.style.left = endPct;
+	if (pvTrimPre) pvTrimPre.style.width = startPct;
+	if (pvTrimPost) pvTrimPost.style.width = postPct;
 }
 
 const TRIM_GAP_PX = 4;
@@ -1741,10 +1772,11 @@ function clampPlayheadToTrim(t) {
 	return Math.max(trimStart + gap, Math.min(trimEnd - gap, t));
 }
 
-function makeTrimHandle(el, getter, setter, minGap) {
+function makeTrimHandle(el, scrubEl, getter, setter, minGap) {
+	if (!el || !scrubEl) return;
 	el.addEventListener("pointerdown", e => {
 		e.stopPropagation();
-		const rect = tlScrub.getBoundingClientRect();
+		const rect = scrubEl.getBoundingClientRect();
 		el.classList.add("dragging");
 		el.setPointerCapture(e.pointerId);
 		const onMove = ev => {
@@ -1763,18 +1795,19 @@ function makeTrimHandle(el, getter, setter, minGap) {
 		el.addEventListener("pointerup", onUp);
 	});
 }
-makeTrimHandle(tlTrimStart,
-	() => trimStart,
-	t => {
-		trimStart = Math.min(t, trimEnd - 0.01);
-		if (playhead < trimStart) setPlayhead(clampPlayheadToTrim(trimStart));
-	});
-makeTrimHandle(tlTrimEnd,
-	() => trimEnd,
-	t => {
-		trimEnd = Math.max(t, trimStart + 0.01);
-		if (playhead > trimEnd) setPlayhead(clampPlayheadToTrim(trimEnd));
-	});
+const setTrimStart = t => {
+	trimStart = Math.min(t, trimEnd - 0.01);
+	if (playhead < trimStart) setPlayhead(clampPlayheadToTrim(trimStart));
+};
+const setTrimEnd = t => {
+	trimEnd = Math.max(t, trimStart + 0.01);
+	if (playhead > trimEnd) setPlayhead(clampPlayheadToTrim(trimEnd));
+};
+makeTrimHandle(tlTrimStart, tlScrub, () => trimStart, setTrimStart);
+makeTrimHandle(tlTrimEnd,   tlScrub, () => trimEnd,   setTrimEnd);
+const pvScrubEl = document.getElementById("pv-scrub-wrap");
+makeTrimHandle(pvTrimStart, pvScrubEl, () => trimStart, setTrimStart);
+makeTrimHandle(pvTrimEnd,   pvScrubEl, () => trimEnd,   setTrimEnd);
 refreshTrimUI();
 const tlTime = document.getElementById("tl-time");
 const tlAddKey = document.getElementById("tl-addkey");
@@ -2462,8 +2495,8 @@ async function deserializeScene(state) {
 }
 
 async function saveScene() {
-	if (IS_PREVIEW) return; // preview iframe is read-only — never write scene state
 	if (restoringScene) return; // suppress saves triggered by addPrimitive/deleteObject during restore
+	if (IS_PREVIEW && (isPlayingPreview || recording)) return; // don't persist transient playback/record camera frames
 	try {
 		await fetch("/comfyblockout/save_scene", {
 			method: "POST",
@@ -2812,16 +2845,14 @@ async function loadPrompt() {
 
 if (IS_PREVIEW) {
 	// Preview iframe: orbit only — no click-select, no transform gizmo, no drag-import.
-	// Critically, it must NEVER write scene state — orbit changes would otherwise race the
-	// async loadScene/deserializeScene and overwrite the editor's imports with [].
+	// saveScene IS allowed (gated by restoringScene + isPlayingPreview/recording) so orbiting
+	// the preview persists camera back to the same scene.json the editor reads.
 	transform.detach();
 	transform.enabled = false;
 	transformHelper.visible = false;
 	// Override attach to a no-op — addPrimitive → select(mesh) during scene restore would
 	// otherwise re-attach the gizmo. detach() alone gets undone by the next select().
 	transform.attach = () => transform;
-	saveScene = async () => {};
-	if (typeof window.saveSceneDebounced === "function") window.saveSceneDebounced = () => {};
 	canvas.style.cursor = "grab";
 	canvas.addEventListener("pointerdown", () => canvas.style.cursor = "grabbing");
 	canvas.addEventListener("pointerup", () => canvas.style.cursor = "grab");
@@ -2838,7 +2869,10 @@ if (IS_PREVIEW) {
 		pvRec.classList.add("recording");
 		startRecording().finally(() => pvRec.classList.remove("recording"));
 	});
-	document.getElementById("pv-edit").addEventListener("click", () => {
+	document.getElementById("pv-edit").addEventListener("click", async () => {
+		// Flush pending debounced camera save before the editor mounts and reads the file,
+		// otherwise the editor sees a stale camera position.
+		try { await saveScene(); } catch {}
 		window.parent?.postMessage({ source: "comfyblockout-editor", type: "request-edit", node_id: NODE_ID }, "*");
 	});
 	document.getElementById("pv-addkey").addEventListener("click", () => {
