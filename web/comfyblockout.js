@@ -109,12 +109,25 @@ async function seedDefaultIfEmpty(nodeId) {
 
 function getStableNodeId(node) {
     // LiteGraph assigns node.id = -1 for freshly-dropped, unsaved nodes — collision-prone.
-    // Stamp a stable UUID on the node and persist it via node.properties so it survives reload.
+    // Stamp a stable UUID on the node so it survives reload. We persist via TWO channels
+    // because ComfyUI's workflow-tab switching has been observed to drop node.properties
+    // even when the same workflow is re-entered:
+    //   1) node.properties.comfyblockout_uid  — preferred, fast in-memory
+    //   2) the "scene" widget's value         — survives widget_values serialization
+    // On boot we read whichever is set, with the widget as the authoritative fallback,
+    // and write back to both so subsequent reads agree.
     node.properties = node.properties || {};
-    if (!node.properties.comfyblockout_uid) {
-        node.properties.comfyblockout_uid = "cb_" + (crypto.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`).replace(/-/g, "");
+    let uid = node.properties.comfyblockout_uid;
+    if (!uid) {
+        const sceneWidget = node.widgets?.find(w => w.name === "scene");
+        const wv = typeof sceneWidget?.value === "string" ? sceneWidget.value.trim() : "";
+        if (/^cb_[0-9a-f]+$/i.test(wv)) uid = wv;
     }
-    return node.properties.comfyblockout_uid;
+    if (!uid) {
+        uid = "cb_" + (crypto.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`).replace(/-/g, "");
+    }
+    node.properties.comfyblockout_uid = uid;
+    return uid;
 }
 
 function buildWidget(node) {
