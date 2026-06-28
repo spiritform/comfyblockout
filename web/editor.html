@@ -2560,14 +2560,45 @@ async function saveScene() {
 	}
 }
 
-// Apply a remote scene update from the sibling iframe (live sync). Both editor and
-// preview listen — whichever side received the change re-deserializes in place.
+// Apply a remote scene update from the sibling iframe (live sync). For live updates we
+// only mirror camera + viewport — re-running the full deserialize would re-fetch every
+// imported asset (eg a 124MB GLB) every time the editor's orbit ticks, and a second sync
+// landing while a previous reload is still in flight would tear down the iframe before
+// it finished, leaving the preview permanently empty. Structural changes (primitives /
+// imports / project) come through on editor close via __c3dRefresh — which does a
+// proper rebuild from disk.
+function applyLightSync(state) {
+	if (!state) return;
+	if (state.camera) {
+		camera.position.fromArray(state.camera.position);
+		orbit.target.fromArray(state.camera.target);
+		if (typeof state.camera.fov === "number") {
+			camera.fov = state.camera.fov;
+			camera.updateProjectionMatrix();
+		}
+	}
+	if (state.aspect && state.aspect !== aspectSelect.value) {
+		aspectSelect.value = state.aspect;
+		handleResize();
+		updateAspectFrame();
+	}
+	if (state.viewport) {
+		if (typeof state.viewport.grid === "boolean") grid.visible = state.viewport.grid;
+		if (typeof state.viewport.bg === "string") applyBgColor(state.viewport.bg);
+	}
+	if (state.trim && typeof state.trim.start === "number" && typeof state.trim.end === "number") {
+		trimStart = Math.max(0, Math.min(1, state.trim.start));
+		trimEnd = Math.max(trimStart + 0.01, Math.min(1, state.trim.end));
+		refreshTrimUI();
+	}
+}
+
 window.addEventListener("message", async (ev) => {
 	if (!ev.data || ev.data.type !== "scene-sync") return;
 	if (ev.data.source !== "comfy3d-parent-sync") return;
 	if (String(ev.data.node_id) !== NODE_ID) return;
 	if (!ev.data.scene) return;
-	try { await deserializeScene(ev.data.scene, { skipSave: true }); } catch {}
+	try { applyLightSync(ev.data.scene); } catch {}
 });
 
 // Exposed so deserializeScene can cancel a queued save mid-restore — otherwise the
