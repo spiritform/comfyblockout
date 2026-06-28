@@ -329,9 +329,21 @@ app.registerExtension({
             }, 1500);
         });
 
+        // Refresh the preview iframe whenever the tab/window regains visibility so the
+        // node body re-reads /load_scene with whatever UID the workflow restoration
+        // currently has. Without this, switching ComfyUI workflow tabs can leave the
+        // preview pointing at an obsolete UID while the rest of the node has moved on.
+        const onVisible = () => {
+            if (document.visibilityState === "visible" && node.__c3dRefresh) {
+                node.__c3dRefresh();
+            }
+        };
+        document.addEventListener("visibilitychange", onVisible);
+
         node.__c3dCleanup = () => {
             window.removeEventListener("message", editRequestHandler);
             window.removeEventListener("message", syncForwarder);
+            document.removeEventListener("visibilitychange", onVisible);
         };
 
         const origSize = node.size?.slice();
