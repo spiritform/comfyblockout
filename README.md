@@ -4,8 +4,6 @@
 
 ![ComfyBlockout node + Preview Image output](docs/node-preview.png)
 
-![Fullscreen editor](docs/editor.png)
-
 ## What it does
 
 - Drop the **ComfyBlockout** node onto your canvas — it ships with a live in-node 3D viewport.
@@ -15,6 +13,8 @@
   - `image` (IMAGE) — first frame / snapshot, wires into Seedance `image_N` slots, Nano Banana `images`, Flux text-to-image start image
   - `video` (VIDEO) — recorded mp4, wires into Seedance `video_1`, Wan motion ref, LTX
   - `prompt` (STRING) — editable system prompt, wires into Nano Banana / Flux / any text-to-image prompt input
+
+![Fullscreen editor](docs/editor.png)
 
 ## Features
 
