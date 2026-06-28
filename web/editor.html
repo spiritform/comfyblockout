@@ -1503,6 +1503,10 @@ document.getElementById("mode-anchor").addEventListener("click", () => {
 });
 
 transform.addEventListener("mouseDown", () => {
+	// Snapshot pre-drag state so Ctrl+Z restores the object's transform from before the
+	// gizmo drag. One snapshot per gesture; objectChange fires per pixel and intentionally
+	// does NOT push, so the stack doesn't flood.
+	try { snapshotForUndo(); } catch {}
 	if (anchorMode && selected) anchorStartPos = selected.position.clone();
 });
 transform.addEventListener("objectChange", () => {
@@ -1664,7 +1668,17 @@ function cropCanvasToAspect(srcCanvas) {
 
 window.addEventListener("keydown", (e) => {
 	const tag = e.target.tagName;
-	if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+	const type = e.target.type;
+	const isTextEdit = tag === "TEXTAREA" || (tag === "INPUT" && (type === "text" || type === "search" || type === "url" || type === "email" || type === "password"));
+	// Text-edit contexts (project name input, prompt textarea, rename) keep ALL keys —
+	// browser's native text editing + native Ctrl+Z take priority for typing.
+	if (isTextEdit) return;
+	// Other form controls (range / color / number / select): pass-through non-shortcut
+	// keys (so arrow keys still adjust a focused slider, Space scrolls a select, etc.)
+	// but let our Ctrl-based shortcuts through — without this Ctrl+Z right after a slider
+	// drag was being swallowed because the slider still held focus.
+	const isOurShortcut = (e.ctrlKey || e.metaKey) && "zyxcvd".includes(e.key.toLowerCase());
+	if ((tag === "INPUT" || tag === "SELECT") && !isOurShortcut) return;
 	if (e.code === "Space") {
 		e.preventDefault();
 		isPlayingPreview ? stopPreview() : playPreview();
@@ -1695,6 +1709,18 @@ window.addEventListener("keydown", (e) => {
 		else deleteObject(selected);
 	}
 	else if (e.key === "d" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); duplicateObject(selected); }
+	else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+		e.preventDefault();
+		copySelectedToClipboard();
+	}
+	else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "x") {
+		e.preventDefault();
+		if (copySelectedToClipboard()) deleteObject(selected);
+	}
+	else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
+		e.preventDefault();
+		pasteFromClipboard();
+	}
 	else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
 		e.preventDefault();
 		performUndo();
@@ -1704,6 +1730,41 @@ window.addEventListener("keydown", (e) => {
 		performRedo();
 	}
 });
+
+// In-editor clipboard for objects. Stores a snapshot — not a live reference — so a
+// later cut/delete of the source can't invalidate a paste. Primitives round-trip via
+// PRIM_DEFS; imports aren't covered here (would need an asset-aware clone path).
+let objectClipboard = null;
+function copySelectedToClipboard() {
+	if (!selected) { updateStatus("nothing to copy"); return false; }
+	const kind = selected.userData?.primKind;
+	if (!kind || !(kind in PRIM_DEFS)) { updateStatus("can only copy blocks (imports not supported)"); return false; }
+	objectClipboard = {
+		kind,
+		position: selected.position.toArray(),
+		rotation: [selected.rotation.x, selected.rotation.y, selected.rotation.z],
+		scale: selected.scale.toArray(),
+		color: selected.material?.color?.getHex?.() ?? 0xffffff,
+		visible: selected.visible !== false,
+	};
+	updateStatus("copied");
+	return true;
+}
+function pasteFromClipboard() {
+	if (!objectClipboard) { updateStatus("nothing in clipboard"); return; }
+	const mesh = addPrimitive(objectClipboard.kind);
+	if (!mesh) return;
+	mesh.position.fromArray(objectClipboard.position);
+	mesh.position.x += 0.5; mesh.position.z += 0.5; // nudge so paste doesn't z-fight the source
+	mesh.rotation.set(objectClipboard.rotation[0], objectClipboard.rotation[1], objectClipboard.rotation[2]);
+	mesh.scale.fromArray(objectClipboard.scale);
+	mesh.material.color.setHex(objectClipboard.color);
+	mesh.visible = objectClipboard.visible;
+	select(mesh);
+	refreshOutliner();
+	saveScene();
+	updateStatus("pasted");
+}
 
 // Compute the largest aspect-fit rectangle inside the wrap. When an aspect ratio is
 // selected, the canvas itself IS that rectangle — the wrap's bg gradient fills the
@@ -2105,6 +2166,9 @@ function renderKeyframeMarkers() {
 			pm.addEventListener("pointerdown", e => {
 				if (e.button !== 0) { e.stopPropagation(); return; } // right-click falls through to contextmenu
 				e.stopPropagation();
+				// Snapshot pre-drag so Ctrl+Z restores the keyframe's old time. Click-without-
+				// drag dedupes against the unchanged scene state.
+				try { snapshotForUndo(); } catch {}
 				stopPreview();
 				selectedKey = k;
 				for (const el of pvKeysEl.querySelectorAll(".pv-key")) el.classList.remove("selected");
@@ -2124,6 +2188,10 @@ function renderKeyframeMarkers() {
 				k.t = Math.max(trimStart + gap, Math.min(trimEnd - gap, dragStartT + dx));
 				pm.style.left = `${k.t * 100}%`;
 				line.style.left = `${k.t * 100}%`;
+				// Keep the playhead glued to the keyframe while it's being dragged — feels
+				// like you're scrubbing through time by moving the keyframe itself.
+				setPlayhead(k.t);
+				applyCameraState(k);
 			});
 			pm.addEventListener("pointerup", e => {
 				if (!pm.hasPointerCapture(e.pointerId)) return;
@@ -2160,6 +2228,9 @@ function renderKeyframeMarkers() {
 		m.addEventListener("pointerdown", e => {
 			if (e.button !== 0) { e.stopPropagation(); return; } // let right-click reach contextmenu cleanly
 			e.stopPropagation();
+			// Snapshot pre-drag so Ctrl+Z restores the keyframe's old time. Click-without-
+			// drag dedupes against the unchanged scene state.
+			try { snapshotForUndo(); } catch {}
 			selectedKey = k;
 			for (const el of tlKeys.querySelectorAll(".tl-key")) el.classList.remove("selected");
 			m.classList.add("selected");
@@ -2179,6 +2250,9 @@ function renderKeyframeMarkers() {
 			k.t = Math.max(trimStart + gap, Math.min(trimEnd - gap, dragStartT + dx));
 			m.style.left = `${k.t * 100}%`;
 			line.style.left = `${k.t * 100}%`;
+			// Keep the playhead glued to the keyframe while dragging — scrubbing-by-keyframe.
+			setPlayhead(k.t);
+			applyCameraState(k);
 		});
 		m.addEventListener("pointerup", e => {
 			if (!m.hasPointerCapture(e.pointerId)) return;
@@ -3119,6 +3193,84 @@ window.addEventListener("keydown", e => {
 orbit.addEventListener("change", saveSceneDebounced);
 fovSlider.addEventListener("change", saveSceneDebounced);
 aspectSelect.addEventListener("change", saveSceneDebounced);
+// Snapshot on the START of an orbit gesture so Ctrl+Z restores the pre-orbit camera —
+// "point A to point B" undo. One snapshot per gesture (not per pixel) because OrbitControls
+// only fires "start" on pointerdown/wheel begin. Subsequent identical snapshots dedupe.
+orbit.addEventListener("start", () => { try { snapshotForUndo(); } catch {} });
+
+// Snapshot on pointerdown / focusin for any range/color/number/text input + select in
+// the panel — covers FOV, env intensity, duration, fps, bg color, object color swatches,
+// aspect, env preset. One snapshot per gesture (drag or focused-typing session); per-
+// pixel input events dedupe against the unchanged or just-captured state.
+const snapshotInputGesture = (e) => {
+	const t = e.target;
+	if (!t || !(t instanceof HTMLElement)) return;
+	const tag = t.tagName;
+	const type = t.type;
+	const isTrackedInput = tag === "INPUT" && (type === "range" || type === "color" || type === "number" || type === "text");
+	if (tag === "SELECT" || isTrackedInput) {
+		try { snapshotForUndo(); } catch {}
+	}
+};
+document.addEventListener("pointerdown", snapshotInputGesture, true);
+document.addEventListener("focusin", snapshotInputGesture, true);
+
+// Reliable pre-change snapshot for scene-affecting form controls. We can't trust that
+// pointerdown fires on every browser's native form controls (Electron Chromium quirks
+// around <select>, plus the user-agent-drawn dropdown sometimes eats pointer events),
+// so this also hooks `change` and synthesizes the pre-state by briefly reverting the
+// element to its last-known value, serializing the scene at that moment, then putting
+// the new value back. snapshotForUndo's dedupe means a duplicate from pointerdown vs
+// change just no-ops.
+function attachPreChangeSnapshot(el) {
+	if (!el) return;
+	el._undoPrev = el.value;
+	const remember = () => { el._undoPrev = el.value; };
+	el.addEventListener("focusin", remember);
+	el.addEventListener("pointerdown", remember);
+	el.addEventListener("change", () => {
+		const prev = el._undoPrev;
+		const next = el.value;
+		if (prev == null || prev === next) { el._undoPrev = next; return; }
+		// Swap to old → snapshot → swap back. serializeScene reads the live element
+		// values for camera fov, aspect, env intensity, duration, fps, bg color etc.,
+		// so reverting captures the genuine pre-change scene state.
+		el.value = prev;
+		try { snapshotForUndo(); } catch {}
+		el.value = next;
+		el._undoPrev = next;
+	});
+}
+attachPreChangeSnapshot(aspectSelect);
+attachPreChangeSnapshot(document.getElementById("env-preset"));
+attachPreChangeSnapshot(envIntensity);
+attachPreChangeSnapshot(document.getElementById("fov"));
+attachPreChangeSnapshot(document.getElementById("duration"));
+attachPreChangeSnapshot(document.getElementById("fps"));
+attachPreChangeSnapshot(document.getElementById("bg-color"));
+
+// Snapshot on any click inside the side panel before its handler runs — covers toggle
+// buttons (Grid / Guides / AR / transform mode / visibility / outliner X / display
+// presets) that aren't form inputs. Capture phase fires pre-handler so the snapshot is
+// the BEFORE state. Click without scene impact dedupes against the unchanged state.
+//
+// Skip form controls — they're snapshotted via the dedicated focus/pointer/change
+// handlers. Without this guard, a click that fires AFTER a slider release or select
+// change would push a SECOND snapshot of the post-change state, turning one user
+// action into two undo steps (Ctrl+Z #1 restores post → no visible change, Ctrl+Z #2
+// restores pre → actual undo).
+const panelEl = document.getElementById("panel");
+if (panelEl) {
+	panelEl.addEventListener("click", (e) => {
+		const t = e.target;
+		if (t && t instanceof HTMLElement) {
+			const tag = t.tagName;
+			if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+			if (t.closest && t.closest("input,select,textarea,label")) return;
+		}
+		try { snapshotForUndo(); } catch {}
+	}, true);
+}
 
 window.addEventListener("beforeunload", () => {
 	try {
