@@ -128,15 +128,31 @@ async function seedDefaultIfEmpty(nodeId) {
     }
 }
 
+const NODE_UID_LS_KEY = "comfyblockout:node_uids";
+
+function loadNodeUidMap() {
+    try { return JSON.parse(localStorage.getItem(NODE_UID_LS_KEY) || "{}") || {}; }
+    catch { return {}; }
+}
+function saveNodeUid(litegraphId, uid) {
+    try {
+        const m = loadNodeUidMap();
+        if (litegraphId == null || litegraphId === -1) return;
+        m[String(litegraphId)] = uid;
+        localStorage.setItem(NODE_UID_LS_KEY, JSON.stringify(m));
+    } catch {}
+}
+
 function getStableNodeId(node) {
     // LiteGraph assigns node.id = -1 for freshly-dropped, unsaved nodes — collision-prone.
-    // Stamp a stable UUID on the node so it survives reload. We persist via TWO channels
-    // because ComfyUI's workflow-tab switching has been observed to drop node.properties
-    // even when the same workflow is re-entered:
+    // Stamp a stable UUID on the node so it survives reload. We persist via THREE channels
+    // because ComfyUI Desktop's workflow-tab switching has been observed to drop BOTH
+    // node.properties AND the "scene" widget value when the workflow is unsaved:
     //   1) node.properties.comfyblockout_uid  — preferred, fast in-memory
     //   2) the "scene" widget's value         — survives widget_values serialization
-    // On boot we read whichever is set, with the widget as the authoritative fallback,
-    // and write back to both so subsequent reads agree.
+    //   3) localStorage keyed by litegraph node.id — survives tab switching even when
+    //      ComfyUI's in-memory workflow state drops widget values
+    // First match wins; we write back to all three so subsequent reads agree.
     node.properties = node.properties || {};
     let uid = node.properties.comfyblockout_uid;
     if (!uid) {
@@ -144,10 +160,16 @@ function getStableNodeId(node) {
         const wv = typeof sceneWidget?.value === "string" ? sceneWidget.value.trim() : "";
         if (/^cb_[0-9a-f]+$/i.test(wv)) uid = wv;
     }
+    if (!uid && node.id != null && node.id !== -1) {
+        const m = loadNodeUidMap();
+        const stored = m[String(node.id)];
+        if (/^cb_[0-9a-f]+$/i.test(stored || "")) uid = stored;
+    }
     if (!uid) {
         uid = "cb_" + (crypto.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`).replace(/-/g, "");
     }
     node.properties.comfyblockout_uid = uid;
+    saveNodeUid(node.id, uid);
     return uid;
 }
 
