@@ -19,11 +19,12 @@
 	#canvas-wrap {
 		position: relative; flex: 1; min-height: 0;
 		overflow: hidden;
+		display: flex; align-items: center; justify-content: center;
 		background:
 			radial-gradient(ellipse 80% 60% at 50% 35%, rgba(60,80,110,0.18), transparent 70%),
 			linear-gradient(180deg, #0c0d12 0%, #07080b 100%);
 	}
-	#renderCanvas { width: 100%; height: 100%; display: block; }
+	#renderCanvas { display: block; }
 
 	#timeline {
 		flex: 0 0 auto; height: 72px;
@@ -693,7 +694,9 @@ function viewportSize() {
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
 renderer.setPixelRatio(window.devicePixelRatio);
 const vs0 = viewportSize();
-renderer.setSize(vs0.w, vs0.h, false);
+// Initial size will be re-tightened to the aspect rectangle by handleResize after the
+// scene loads (currentAspect defaults to 16:9 via the <select selected> attribute).
+renderer.setSize(vs0.w, vs0.h, true);
 renderer.setClearColor(0x07080b);
 
 const scene = new THREE.Scene();
@@ -1552,23 +1555,25 @@ function currentAspect() {
 }
 
 function updateAspectFrame() {
+	// The renderer now resizes the canvas itself to the selected aspect (see fitDimensions),
+	// so the wrap's bg gradient naturally letterboxes the scene. The aspect-frame overlay
+	// is kept only as an optional thin border sitting exactly on the canvas edges — toggled
+	// by the AR button. No more inset rectangle drifting from where the crop will be.
 	const asp = currentAspect();
 	if (!asp || !arVisible) { aspectFrame.style.display = "none"; return; }
+	const fit = fitDimensions();
 	const vs = viewportSize();
-	// Preview mode (small in-node iframe) deserves a much tighter margin so the framing actually represents the shot
-	const margin = IS_PREVIEW ? 6 : 50;
-	const maxW = vs.w - margin * 2;
-	const maxH = vs.h - margin * 2;
-	let w = maxW, h = w / asp.ratio;
-	if (h > maxH) { h = maxH; w = h * asp.ratio; }
 	aspectFrame.style.display = "block";
-	aspectFrame.style.width = w + "px";
-	aspectFrame.style.height = h + "px";
-	aspectFrame.style.left = (vs.w - w) / 2 + "px";
-	aspectFrame.style.top = (vs.h - h) / 2 + "px";
+	aspectFrame.style.width = fit.w + "px";
+	aspectFrame.style.height = fit.h + "px";
+	aspectFrame.style.left = (vs.w - fit.w) / 2 + "px";
+	aspectFrame.style.top = (vs.h - fit.h) / 2 + "px";
 }
 
-aspectSelect.addEventListener("change", updateAspectFrame);
+aspectSelect.addEventListener("change", () => {
+	handleResize();
+	updateAspectFrame();
+});
 updateAspectFrame();
 
 function cropCanvasToAspect(srcCanvas) {
@@ -1621,6 +1626,22 @@ window.addEventListener("keydown", (e) => {
 	else if (e.key === "d" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); duplicateObject(selected); }
 });
 
+// Compute the largest aspect-fit rectangle inside the wrap. When an aspect ratio is
+// selected, the canvas itself IS that rectangle — the wrap's bg gradient fills the
+// letterbox region around it, so the visible scene matches the exported image byte
+// for byte. When "Free" is selected the canvas fills the entire wrap.
+function fitDimensions() {
+	const vs = viewportSize();
+	const asp = currentAspect();
+	const margin = IS_PREVIEW ? 0 : 16;
+	if (!asp) return { w: vs.w, h: vs.h };
+	const maxW = Math.max(1, vs.w - margin * 2);
+	const maxH = Math.max(1, vs.h - margin * 2);
+	let w = maxW, h = w / asp.ratio;
+	if (h > maxH) { h = maxH; w = h * asp.ratio; }
+	return { w: Math.max(1, Math.round(w)), h: Math.max(1, Math.round(h)) };
+}
+
 let resizeRaf = 0;
 function handleResize() {
 	if (resizeRaf) return;
@@ -1628,9 +1649,10 @@ function handleResize() {
 		resizeRaf = 0;
 		const vs = viewportSize();
 		if (vs.w < 1 || vs.h < 1) return; // canvasWrap mid-layout — skip to avoid 0-size render
-		camera.aspect = vs.w / vs.h;
+		const fit = fitDimensions();
+		camera.aspect = fit.w / fit.h;
 		camera.updateProjectionMatrix();
-		renderer.setSize(vs.w, vs.h, false);
+		renderer.setSize(fit.w, fit.h, true);
 		updateAspectFrame();
 	});
 }
@@ -2503,6 +2525,9 @@ async function saveScene() {
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ node_id: NODE_ID, scene: serializeScene() }),
 		});
+		// Refresh the IMAGE output snapshot so queuing the workflow uses the current view
+		// without forcing a record-first. Debounced so orbit drags don't snapshot per-frame.
+		autoSnapshotDebounced();
 	} catch (e) {
 		console.warn("[ComfyBlockout] scene save failed:", e);
 	}
@@ -2513,6 +2538,16 @@ const saveSceneDebounced = (() => {
 	return () => {
 		clearTimeout(t);
 		t = setTimeout(saveScene, 600);
+	};
+})();
+
+const autoSnapshotDebounced = (() => {
+	let t = null;
+	return () => {
+		if (restoringScene) return;
+		if (recording || isPlayingPreview) return;
+		clearTimeout(t);
+		t = setTimeout(() => { autoSnapshot().catch(() => {}); }, 800);
 	};
 })();
 
@@ -2841,6 +2876,10 @@ async function loadPrompt() {
 		cube.position.set(0, 0, 0);
 		saveScene();
 	}
+	// Refresh the IMAGE output once after init so freshly-seeded scenes (or just-reopened
+	// nodes) don't return the 512x512 black placeholder when the workflow is queued.
+	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+	autoSnapshot().catch(() => {});
 })();
 
 if (IS_PREVIEW) {
