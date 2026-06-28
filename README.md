@@ -2,7 +2,7 @@
 
 3D editor node for ComfyUI — build a blockout scene (primitives, GLB, FBX with animation, gaussian splats), record a keyframed camera path, and feed the rendered mp4 + start image + scene prompt straight into Seedance / Nano Banana / Flux / any downstream model.
 
-![ComfyBlockout node + Preview Image output](docs/node-preview.png)
+![Fullscreen editor](docs/editor.png)
 
 ## What it does
 
@@ -14,7 +14,7 @@
   - `video` (VIDEO) — recorded mp4, wires into Seedance `video_1`, Wan motion ref, LTX
   - `prompt` (STRING) — editable system prompt, wires into Nano Banana / Flux / any text-to-image prompt input
 
-![Fullscreen editor](docs/editor.png)
+![ComfyBlockout node + Preview Image output](docs/node-preview.png)
 
 ## Features
 
