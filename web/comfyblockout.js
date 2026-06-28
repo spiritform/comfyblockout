@@ -235,6 +235,14 @@ function refreshThumbnail(node, ui) {
 
 
 function openEditor(node) {
+    // If an editor is already open for this node, focus it instead of stacking another
+    // modal. Without this guard, hitting Edit twice — or a request-edit message arriving
+    // again — left two iframes layered, and each Close click only dismissed the topmost.
+    if (node.__c3dEditorIframe && document.body.contains(node.__c3dEditorIframe)) {
+        try { node.__c3dEditorIframe.contentWindow?.focus(); } catch {}
+        return;
+    }
+
     const nodeId = getStableNodeId(node);
     const url = `${EDITOR_URL}?node_id=${encodeURIComponent(nodeId)}&t=${Date.now()}`;
 
