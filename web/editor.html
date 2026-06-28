@@ -2811,14 +2811,50 @@ window.addEventListener("beforeunload", () => {
 	} catch {}
 });
 
+// Offscreen renderer used only for snapshots so the IMAGE output is high-res
+// (Seedance / Nano Banana / Flux need real pixels, not the 236×133 in-node preview).
+let snapshotRenderer = null;
+const SNAPSHOT_TARGET_W = 1920;
+function ensureSnapshotRenderer() {
+	if (!snapshotRenderer) {
+		const offCanvas = document.createElement("canvas");
+		snapshotRenderer = new THREE.WebGLRenderer({ canvas: offCanvas, antialias: true, alpha: false });
+		snapshotRenderer.setClearColor(0x07080b);
+		snapshotRenderer.setPixelRatio(1);
+		snapshotRenderer.outputColorSpace = renderer.outputColorSpace;
+		snapshotRenderer.toneMapping = renderer.toneMapping;
+		snapshotRenderer.toneMappingExposure = renderer.toneMappingExposure;
+	}
+	return snapshotRenderer;
+}
+
 async function autoSnapshot() {
 	try {
-		setRecordingMode(true);
-		await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-		renderer.render(scene, camera);
-		const cropped = cropCanvasToAspect(canvas);
-		const blob = await new Promise(res => cropped.toBlob(res, "image/png"));
-		setRecordingMode(false);
+		const asp = currentAspect();
+		const ratio = asp ? asp.ratio : (canvas.width / canvas.height || 16 / 9);
+		const w = SNAPSHOT_TARGET_W;
+		const h = Math.max(1, Math.round(w / ratio));
+		const r = ensureSnapshotRenderer();
+		r.setSize(w, h, false);
+
+		// Hide grid + gizmo on the shared scene for the duration of the offscreen render.
+		// We restore them immediately after — the main visible canvas never blanks.
+		const gridWasVisible = grid.visible;
+		const helperWasVisible = transformHelper.visible;
+		grid.visible = false;
+		transformHelper.visible = false;
+
+		const prevAspect = camera.aspect;
+		camera.aspect = w / h;
+		camera.updateProjectionMatrix();
+		r.render(scene, camera);
+		camera.aspect = prevAspect;
+		camera.updateProjectionMatrix();
+
+		grid.visible = gridWasVisible;
+		transformHelper.visible = helperWasVisible;
+
+		const blob = await new Promise(res => r.domElement.toBlob(res, "image/png"));
 		if (!blob) return;
 		await uploadImage(blob);
 	} catch (e) {
