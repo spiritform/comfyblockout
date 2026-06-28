@@ -71,16 +71,12 @@ const DEFAULT_CUBE_PALETTE = [
     0xff5fbf, 0x2cd9d9, 0xc7e93b, 0xe83ad1, 0xffffff, 0x444444,
 ];
 function buildDefaultScene() {
+    // Empty scene — no auto-seeded cube. Fresh nodes start blank; the user adds blocks
+    // via the panel buttons or loads a project via Open. This avoids the "every tab
+    // switch shows a new random-color cube" symptom that came from re-seeding when
+    // the node UID didn't survive a workflow-tab round-trip.
     return {
-        primitives: [{
-            kind: "cube",
-            name: "Cube.001",
-            position: [0, 0.5, 0],
-            rotation: [0, 0, 0],
-            scale: [1, 1, 1],
-            color: DEFAULT_CUBE_PALETTE[Math.floor(Math.random() * DEFAULT_CUBE_PALETTE.length)],
-            visible: true,
-        }],
+        primitives: [],
         camera: { position: [2.2, 1.6, 2.8], target: [0, 0.5, 0], fov: 55 },
         aspect: "16:9",
         env: { preset: "studio", intensity: 1.0 },
