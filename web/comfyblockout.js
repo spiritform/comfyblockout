@@ -211,18 +211,27 @@ function openEditor(node) {
     modal.appendChild(iframe);
     document.body.appendChild(modal);
 
+    // Expose the editor iframe so the live-sync forwarder can route preview→editor
+    // scene updates while the editor is open.
+    node.__c3dEditorIframe = iframe;
+
     const onMsg = async (ev) => {
         if (!ev.data || ev.data.source !== "comfy3d-editor") return;
         if (ev.data.type === "thumbnail-refresh") {
             if (node.__c3dRefresh) node.__c3dRefresh();
         } else if (ev.data.type === "closed") {
+            node.__c3dEditorIframe = null;
             modal.remove();
             window.removeEventListener("message", onMsg);
             if (node.__c3dRefresh) node.__c3dRefresh();
         }
     };
     window.addEventListener("message", onMsg);
-    closeBtn.addEventListener("click", () => window.removeEventListener("message", onMsg));
+    const cleanupOnClose = () => {
+        node.__c3dEditorIframe = null;
+        window.removeEventListener("message", onMsg);
+    };
+    closeBtn.addEventListener("click", cleanupOnClose);
 }
 
 
@@ -261,7 +270,29 @@ app.registerExtension({
             openEditor(node);
         };
         window.addEventListener("message", editRequestHandler);
-        node.__c3dCleanup = () => window.removeEventListener("message", editRequestHandler);
+
+        // Live scene-sync forwarder: editor save → preview iframe (and vice versa) so both
+        // viewports reflect the same state without waiting for the editor to close.
+        const syncForwarder = (ev) => {
+            if (!ev.data || ev.data.type !== "scene-sync") return;
+            if (ev.data.source !== "comfy3d-editor" && ev.data.source !== "comfy3d-preview") return;
+            if (String(ev.data.node_id) !== ui.nodeId) return;
+            const target = ev.data.source === "comfy3d-editor"
+                ? ui.previewFrame
+                : node.__c3dEditorIframe;
+            target?.contentWindow?.postMessage({
+                source: "comfy3d-parent-sync",
+                type: "scene-sync",
+                node_id: ev.data.node_id,
+                scene: ev.data.scene,
+            }, "*");
+        };
+        window.addEventListener("message", syncForwarder);
+
+        node.__c3dCleanup = () => {
+            window.removeEventListener("message", editRequestHandler);
+            window.removeEventListener("message", syncForwarder);
+        };
 
         const origSize = node.size?.slice();
         if (origSize && origSize[1] < 280) node.size[1] = 280;

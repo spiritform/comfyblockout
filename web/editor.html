@@ -1643,9 +1643,10 @@ function fitDimensions() {
 }
 
 let resizeRaf = 0;
+let resizePending = false;
 function handleResize() {
-	if (resizeRaf) return;
-	resizeRaf = requestAnimationFrame(() => {
+	if (resizeRaf) { resizePending = true; return; }
+	resizeRaf = requestAnimationFrame(function run() {
 		resizeRaf = 0;
 		const vs = viewportSize();
 		if (vs.w < 1 || vs.h < 1) return; // canvasWrap mid-layout — skip to avoid 0-size render
@@ -1654,6 +1655,13 @@ function handleResize() {
 		camera.updateProjectionMatrix();
 		renderer.setSize(fit.w, fit.h, true);
 		updateAspectFrame();
+		// If another handleResize call came in during the RAF (eg. deserializeScene
+		// setting aspectSelect.value after ResizeObserver already queued a RAF with the
+		// stale default 16:9), re-run so the new aspect wins.
+		if (resizePending) {
+			resizePending = false;
+			resizeRaf = requestAnimationFrame(run);
+		}
 	});
 }
 new ResizeObserver(handleResize).observe(canvasWrap);
@@ -2402,7 +2410,7 @@ function serializeScene() {
 	};
 }
 
-async function deserializeScene(state) {
+async function deserializeScene(state, opts = {}) {
 	if (!state) return false;
 	restoringScene = true;
 	try {
@@ -2512,8 +2520,11 @@ async function deserializeScene(state) {
 	} finally {
 		restoringScene = false;
 		// Flush one save with the fully-restored state so the wipe + per-add saves don't leave
-		// the backend with a partial snapshot. saveScene is debounce-safe to call after the gate.
-		try { await saveScene(); } catch {}
+		// the backend with a partial snapshot. Skipped for remote sync to avoid ping-pong loops
+		// (the sender already persisted; re-saving would echo back through the forwarder).
+		if (!opts.skipSave) {
+			try { await saveScene(); } catch {}
+		}
 	}
 }
 
@@ -2521,11 +2532,23 @@ async function saveScene() {
 	if (restoringScene) return; // suppress saves triggered by addPrimitive/deleteObject during restore
 	if (IS_PREVIEW && (isPlayingPreview || recording)) return; // don't persist transient playback/record camera frames
 	try {
+		const scene = serializeScene();
 		await fetch("/comfyblockout/save_scene", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ node_id: NODE_ID, scene: serializeScene() }),
+			body: JSON.stringify({ node_id: NODE_ID, scene }),
 		});
+		// Live-sync to the sibling iframe via the parent (editor → preview, or
+		// preview → editor) so both viewports reflect the same state without
+		// having to close + reload anything.
+		try {
+			window.parent?.postMessage({
+				source: "comfy3d-" + (IS_PREVIEW ? "preview" : "editor"),
+				type: "scene-sync",
+				node_id: NODE_ID,
+				scene,
+			}, "*");
+		} catch {}
 		// Refresh the IMAGE output snapshot so queuing the workflow uses the current view
 		// without forcing a record-first. Debounced so orbit drags don't snapshot per-frame.
 		autoSnapshotDebounced();
@@ -2533,6 +2556,16 @@ async function saveScene() {
 		console.warn("[ComfyBlockout] scene save failed:", e);
 	}
 }
+
+// Apply a remote scene update from the sibling iframe (live sync). Both editor and
+// preview listen — whichever side received the change re-deserializes in place.
+window.addEventListener("message", async (ev) => {
+	if (!ev.data || ev.data.type !== "scene-sync") return;
+	if (ev.data.source !== "comfy3d-parent-sync") return;
+	if (String(ev.data.node_id) !== NODE_ID) return;
+	if (!ev.data.scene) return;
+	try { await deserializeScene(ev.data.scene, { skipSave: true }); } catch {}
+});
 
 const saveSceneDebounced = (() => {
 	let t = null;
