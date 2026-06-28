@@ -2457,6 +2457,7 @@ async function deserializeScene(state) {
 	}
 	if (state.aspect) {
 		aspectSelect.value = state.aspect;
+		handleResize();
 		updateAspectFrame();
 	}
 	if (state.env) {
