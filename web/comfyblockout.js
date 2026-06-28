@@ -327,6 +327,17 @@ app.registerExtension({
         };
         window.addEventListener("message", syncForwarder);
 
+        // Preview-refresh: editor asks the parent to fully rebuild the in-node iframe
+        // from disk. Used after destructive operations (Open Project, etc.) where live
+        // scene-sync isn't enough — eg the preview's deserializeScene chokes on a now-
+        // copied asset and gives up silently. A full iframe rebuild always re-fetches.
+        const refreshRequestHandler = (ev) => {
+            if (!ev.data || ev.data.type !== "preview-refresh") return;
+            if (String(ev.data.node_id) !== ui.nodeId) return;
+            if (node.__c3dRefresh) node.__c3dRefresh();
+        };
+        window.addEventListener("message", refreshRequestHandler);
+
         // Force-snapshot bridge: parent (queuePrompt wrapper) asks the preview iframe to
         // flush a fresh render before the workflow submits. Resolves on ack with a 1.5s
         // safety timeout so a stuck iframe never blocks the queue button.

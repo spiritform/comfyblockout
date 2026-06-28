@@ -2758,6 +2758,9 @@ document.getElementById("project-open").addEventListener("click", async () => {
 	await deserializeScene(j.scene);
 	applyProjectName(name);
 	updateStatus(`opened · ${name}`);
+	// Ask the parent to fully rebuild the in-node preview iframe — live scene-sync
+	// can miss when the preview was minted with a different NODE_ID than the editor.
+	try { window.parent?.postMessage({ source: "comfy3d-editor", type: "preview-refresh", node_id: NODE_ID }, "*"); } catch {}
 });
 
 function showNamePrompt(title, suggested) {
@@ -2965,14 +2968,11 @@ async function loadPrompt() {
 
 (async () => {
 	await loadPrompt();
-	const restored = await loadScene();
-	// Only seed a default cube when there is NO saved scene at all (brand-new node).
-	// `restored && objects.length===0` is a valid user state (they deleted everything) — don't re-add.
-	if (!IS_PREVIEW && !restored) {
-		const cube = addPrimitive("cube");
-		cube.position.set(0, 0, 0);
-		saveScene();
-	}
+	await loadScene();
+	// (Removed the editor "if loadScene returned falsy → addPrimitive('cube') + saveScene"
+	//  fallback. If /load_scene transiently failed or returned empty for any reason, that
+	//  fallback would clobber a real saved scene with a fresh cube. Empty scene on load
+	//  failure is now silent — the user can hit Add Block if they actually want a cube.)
 	// Refresh the IMAGE output once after init so freshly-seeded scenes (or just-reopened
 	// nodes) don't return the 512x512 black placeholder when the workflow is queued.
 	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
