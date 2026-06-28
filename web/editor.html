@@ -353,7 +353,8 @@
 	#prompt-text {
 		width: 100%; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06);
 		border-radius: 6px; color: #ddd; font-family: inherit; font-size: 11px;
-		padding: 8px 10px; outline: none; resize: vertical; min-height: 56px;
+		padding: 8px 10px; outline: none; resize: vertical; min-height: 180px;
+		line-height: 1.45;
 	}
 	#prompt-text:focus { border-color: rgba(255,180,84,0.4); background: rgba(0,0,0,0.35); }
 
@@ -594,7 +595,7 @@
 
 		<div class="section">
 			<div class="section-label">System Prompt (String Output)</div>
-			<textarea id="prompt-text" rows="4" placeholder="Render this blockout scene. Match the exact camera angle, composition, scale, aspect ration and object orientations — but do not use the blockout to define the style, colors, or creative direction. Only use the grid as reference for the scene perspective and not as an element to include in the generated image or video"></textarea>
+			<textarea id="prompt-text" rows="10" placeholder="Render this blockout scene. Match the exact camera angle, composition, scale, aspect ration and object orientations — but do not use the blockout to define the style, colors, or creative direction. Only use the grid as reference for the scene perspective and not as an element to include in the generated image or video"></textarea>
 		</div>
 	</div>
 
