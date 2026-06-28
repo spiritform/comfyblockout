@@ -459,6 +459,16 @@
 		line-height: 1.5;
 	}
 	@keyframes spin { to { transform: rotate(360deg); } }
+	.btn.save-flash {
+		background: rgba(56,217,119,0.36) !important;
+		color: #fff !important;
+		box-shadow: 0 0 10px rgba(56,217,119,0.6);
+		animation: saveFlash 0.7s ease-out;
+	}
+	@keyframes saveFlash {
+		0%   { transform: scale(1.08); }
+		100% { transform: scale(1); }
+	}
 </style>
 </head>
 <body>
@@ -2747,6 +2757,19 @@ function applyLightSync(state) {
 		trimEnd = Math.max(trimStart + 0.01, Math.min(1, state.trim.end));
 		refreshTrimUI();
 	}
+	// Keyframes are cheap (positions + tween hints) — no asset fetches, so light sync
+	// can swap them in too. Without this the preview's mini-timeline doesn't show
+	// new diamonds until editor close triggered __c3dRefresh.
+	if (Array.isArray(state.keyframes)) {
+		keyframes = state.keyframes.map(k => ({
+			t: k.t,
+			pos: new THREE.Vector3().fromArray(k.pos),
+			target: new THREE.Vector3().fromArray(k.target),
+			fov: k.fov,
+			ease: k.ease || "easeInOut",
+		}));
+		renderKeyframeMarkers();
+	}
 }
 
 window.addEventListener("message", async (ev) => {
@@ -3019,6 +3042,15 @@ function showNamePrompt(title, suggested) {
 	});
 }
 
+function flashSaveButton(btnId) {
+	const btn = document.getElementById(btnId);
+	if (!btn) return;
+	btn.classList.remove("save-flash");
+	void btn.offsetWidth; // force reflow so the animation can restart on rapid saves
+	btn.classList.add("save-flash");
+	setTimeout(() => btn.classList.remove("save-flash"), 700);
+}
+
 async function doSaveAs() {
 	const suggested = currentProjectName || "untitled";
 	const name = await showNamePrompt("Save project as", suggested);
@@ -3028,6 +3060,8 @@ async function doSaveAs() {
 	applyProjectName(name);
 	await saveScene();
 	updateStatus(`saved · ${name} · ${j.assets} asset${j.assets === 1 ? "" : "s"}`);
+	flashSaveButton("project-save-as");
+	flashSaveButton("project-save");
 }
 
 document.getElementById("project-save-as").addEventListener("click", doSaveAs);
@@ -3037,13 +3071,17 @@ document.getElementById("project-save").addEventListener("click", async () => {
 	if (!j.success) { updateStatus(`save failed: ${j.error || "unknown"}`); return; }
 	await saveScene();
 	updateStatus(`saved · ${currentProjectName}`);
+	flashSaveButton("project-save");
 });
 
 window.addEventListener("keydown", e => {
 	if ((e.ctrlKey || e.metaKey) && e.key === "s" && !IS_PREVIEW) {
 		e.preventDefault();
 		if (currentProjectName) {
-			saveProject(currentProjectName).then(() => updateStatus(`saved · ${currentProjectName}`));
+			saveProject(currentProjectName).then(() => {
+				updateStatus(`saved · ${currentProjectName}`);
+				flashSaveButton("project-save");
+			});
 		} else {
 			doSaveAs();
 		}
