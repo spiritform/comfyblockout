@@ -201,12 +201,16 @@ class ComfyBlockout:
         return (img, self._make_video_output(video_path), prompt)
 
     def _make_video_output(self, path):
+        # We can't tell from inside process() whether the VIDEO output is wired to
+        # anything downstream, so we always have to return something. If a recording
+        # exists, wrap it in VideoFromFile. If not, return None — ComfyUI's executor
+        # treats that as "not provided" for the case where the slot is unwired (eg an
+        # image-only Nano Banana workflow). Downstream nodes that DO consume the slot
+        # without a recording will get an AttributeError, which is the user's signal
+        # to hit Record. Previously we raised here unconditionally and that error
+        # blocked unrelated image-only queues.
         if path is None:
-            raise RuntimeError(
-                "ComfyBlockout: no video has been recorded for this node yet. "
-                "Open the editor (or use the in-node record button) and press Record "
-                "to capture the camera path, then re-queue."
-            )
+            return None
         if HAS_VIDEO_TYPE:
             try:
                 return VideoFromFile(str(path))
