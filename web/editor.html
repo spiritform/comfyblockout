@@ -89,7 +89,7 @@
 
 	#tl-scrub-wrap {
 		flex: 1; position: relative; height: 36px;
-		background: rgba(0,0,0,0.3); border-radius: 6px;
+		background: #2a2a32; border-radius: 6px;
 		overflow: visible; cursor: pointer;
 	}
 	#tl-ruler {
@@ -106,29 +106,28 @@
 		pointer-events: none; z-index: 10;
 		transform: translateX(-50%);
 	}
-	/* Invisible wide hit zone for easy grabbing of the yellow line */
+	/* Invisible hit zone for the yellow line — narrower than a keyframe (15px)
+	   so a key sitting under the playhead still has grabbable edges. */
 	#tl-playhead .head {
-		position: absolute; left: -4px; top: 0; bottom: 0;
-		width: 13px; background: transparent;
+		position: absolute; left: -2px; top: 0; bottom: 0;
+		width: 9px; background: transparent;
 		cursor: ew-resize; pointer-events: auto;
 	}
 	#tl-scrub-wrap:hover { cursor: ew-resize; }
 	.tl-key {
-		position: absolute; top: 50%;
-		width: 12px; height: 12px;
-		background: #5a9aff; border: 1px solid #fff;
-		transform: translate(-50%, -50%) rotate(45deg);
-		box-shadow: 0 0 6px rgba(90,154,255,0.6);
-		cursor: grab;
+		position: absolute; top: 0; bottom: 0;
+		width: 15px; background: #38d977;
+		transform: translateX(-50%);
+		cursor: grab; z-index: 5;
 	}
-	.tl-key:hover { background: #80b4ff; }
-	.tl-key.selected { background: #ffb454; box-shadow: 0 0 10px rgba(255,180,80,0.8); border-color: #fff; }
+	.tl-key:hover { background: #5ce594; }
+	.tl-key.selected { background: #fff; } /* same z as other keys — playhead (z 10) stays grabbable on top */
 	.tl-key.dragging { cursor: grabbing; }
 
 	/* Dim the bar OUTSIDE the trim region so the selected range pops */
 	#tl-trim-pre, #tl-trim-post {
 		position: absolute; top: 0; bottom: 0;
-		background: rgba(0, 0, 0, 0.55);
+		background: rgba(0, 0, 0, 0.92);
 		pointer-events: none; z-index: 2;
 	}
 	#tl-trim-pre { left: 0; }
@@ -137,8 +136,10 @@
 		position: absolute; top: 0; bottom: 0; width: 5px;
 		background: #ff8c1a;
 		cursor: ew-resize; z-index: 6;
-		transform: translateX(-50%);
 	}
+	/* Start handle sits just left of trimStart, end handle just right of trimEnd — never overlap */
+	#tl-trim-start { transform: translateX(-100%); }
+	#tl-trim-end { transform: translateX(0); }
 	.tl-trim-handle:hover { background: #ffb454; box-shadow: 0 0 6px rgba(255,180,80,0.7); }
 	.tl-trim-handle.dragging { background: #ffd28a; }
 
@@ -476,7 +477,7 @@
 					<span class="pv-time" id="pv-time">0.00s</span>
 				</div>
 			</div>
-			<div id="info-block" style="position:absolute;top:0;left:0;background:rgba(20,20,24,0.85);border:1px solid rgba(255,255,255,0.08);border-radius:0 0 6px 0;z-index:11;display:flex;flex-direction:column;align-items:flex-start">
+			<div id="info-block" style="position:absolute;top:6px;left:6px;background:rgba(20,20,24,0.85);border-radius:6px;z-index:11;display:flex;flex-direction:column;align-items:flex-start">
 				<button id="info-btn" title="Scene info" style="width:24px;height:24px;border:none;background:transparent;color:rgba(255,255,255,0.55);font:11px serif;font-style:italic;font-weight:600;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center">i</button>
 				<div id="debug-hud" style="color:rgba(255,255,255,0.45);font:10px ui-monospace,monospace;padding:0 12px 10px 12px;line-height:1.6;white-space:pre;display:none;min-width:200px"></div>
 			</div>
@@ -540,8 +541,8 @@ import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
 
 const params = new URLSearchParams(location.search);
 const NODE_ID = params.get("node_id") || "preview";
-const MODE = params.get("mode") || "editor";
-const IS_PREVIEW = MODE === "preview";
+// Treat as preview when ?mode=preview is in the URL (string check is bulletproof).
+const IS_PREVIEW = /[?&]mode=preview(\b|&|$)/.test(location.search);
 if (IS_PREVIEW) document.body.classList.add("preview-mode");
 
 const canvas = document.getElementById("renderCanvas");
@@ -1557,9 +1558,13 @@ function refreshTrimUI() {
 	tlTrimPost.style.width = `${(1 - trimEnd) * 100}%`;
 }
 
-function clampPlayheadToTrim(t) {
+const TRIM_GAP_PX = 4;
+function trimGap() {
 	const rect = tlScrub.getBoundingClientRect();
-	const gap = rect.width > 0 ? 8 / rect.width : 0.01;
+	return rect.width > 0 ? TRIM_GAP_PX / rect.width : 0.004;
+}
+function clampPlayheadToTrim(t) {
+	const gap = trimGap();
 	return Math.max(trimStart + gap, Math.min(trimEnd - gap, t));
 }
 
@@ -1667,8 +1672,11 @@ function renderKeyframeMarkers() {
 		let dragStartX, dragStartT, didDrag = false;
 		m.addEventListener("pointerdown", e => {
 			e.stopPropagation();
+			// Set selection without rebuilding markers — pointercapture stays valid on this element.
+			// Just swap the "selected" class on the live elements.
 			selectedKey = k;
-			renderKeyframeMarkers();
+			for (const el of tlKeys.querySelectorAll(".tl-key")) el.classList.remove("selected");
+			m.classList.add("selected");
 			dragStartX = e.clientX;
 			dragStartT = k.t;
 			didDrag = false;
@@ -1680,7 +1688,9 @@ function renderKeyframeMarkers() {
 			const rect = tlScrub.getBoundingClientRect();
 			const dx = (e.clientX - dragStartX) / rect.width;
 			if (Math.abs(dx) > 0.005) didDrag = true;
-			k.t = Math.max(0, Math.min(1, dragStartT + dx));
+			// Clamp into the trim window with the same visual gap as the resting playhead.
+			const gap = trimGap();
+			k.t = Math.max(trimStart + gap, Math.min(trimEnd - gap, dragStartT + dx));
 			m.style.left = `${k.t * 100}%`;
 		});
 		m.addEventListener("pointerup", e => {
@@ -1732,15 +1742,21 @@ tlScrub.addEventListener("pointerdown", e => {
 	const playheadHead = tlPlayhead.querySelector(".head");
 	const allowed = [tlScrub, document.getElementById("tl-ruler"), tlPlayhead, playheadHead];
 	if (!allowed.includes(e.target)) return;
+	// Dead zone near trim handles — if the user aimed near a handle but missed by a few px,
+	// don't scrub there; let them re-aim and grab the handle cleanly.
+	const rect = tlScrub.getBoundingClientRect();
+	const x = e.clientX - rect.left;
+	const startPx = trimStart * rect.width;
+	const endPx = trimEnd * rect.width;
+	if (Math.abs(x - startPx) < 10 || Math.abs(x - endPx) < 10) return;
 	// Any click in the timeline area stops playback and starts scrubbing
 	stopPreview();
 	selectedKey = null;
 	renderKeyframeMarkers();
-	const rect = tlScrub.getBoundingClientRect();
+	const gap = trimGap();
 	const seek = (x) => {
 		let t = Math.max(0, Math.min(1, (x - rect.left) / rect.width));
-		// Pixel-based gap = half playhead + half trim handle + a few px breathing room
-		const gap = 8 / rect.width;
+		// Same gap as the resting playhead so scrub doesn't jump past the start/end clamp.
 		t = Math.max(trimStart + gap, Math.min(trimEnd - gap, t));
 		setPlayhead(t);
 		const s = sampleCameraAt(t);
@@ -1774,22 +1790,27 @@ async function playPreview() {
 	isPlayingPreview = true;
 	tlPlay.classList.add("active");
 	const dur = currentDuration() * 1000;
-	// Snap mixers to trim-start before play so trimmed FBX previews start at the right pose
-	for (const m of fbxMixers) m.setTime(trimStart * (dur / 1000));
+	// Inset the play range by the same visual gap used for the resting playhead so the
+	// yellow line never overlaps the orange trim handles at either end.
+	const gap = trimGap();
+	const playStart = trimStart + gap;
+	const playEnd = trimEnd - gap;
+	// Resume from current playhead when it's inside the play window; otherwise loop back to start.
+	const resumeT = (playhead > playStart && playhead < playEnd - 1e-4) ? playhead : playStart;
+	setPlayhead(resumeT);
+	for (const m of fbxMixers) m.setTime(resumeT * (dur / 1000));
 	setMixersPlaying(true);
 	const startMs = performance.now();
 	while (isPlayingPreview) {
 		const elapsed = performance.now() - startMs;
-		// Map real elapsed time into the trim window: [trimStart .. trimEnd]
-		const span = trimEnd - trimStart;
-		const trimT = Math.min(1, elapsed / (dur * span));
-		const t = trimStart + trimT * span;
+		// 1ms of real time advances normalized-time by 1/dur
+		const t = Math.min(playEnd, resumeT + elapsed / dur);
 		setPlayhead(t);
 		if (hasCameraTween) {
 			const s = sampleCameraAt(t);
 			if (s) applyCameraState(s);
 		}
-		if (trimT >= 1) break;
+		if (t >= playEnd) break;
 		await new Promise(r => requestAnimationFrame(r));
 	}
 	isPlayingPreview = false;
@@ -1816,7 +1837,7 @@ function rewindTransport() {
 }
 document.getElementById("tl-rewind").addEventListener("click", rewindTransport);
 
-setPlayhead(0);
+setPlayhead(clampPlayheadToTrim(0));
 document.getElementById("duration").addEventListener("input", () => setPlayhead(playhead));
 
 // ── Record ────────────────────────────────────────────────────────
@@ -2060,12 +2081,14 @@ async function deserializeScene(state) {
 			ease: k.ease || "easeInOut",
 		}));
 		renderKeyframeMarkers();
-		setPlayhead(0);
 	}
 
 	transform.detach();
 	selected = null;
 	refreshOutliner();
+	// Always clamp the playhead into the trim region with the gap so the yellow line never
+	// sits directly on top of an orange trim handle at scene start
+	setPlayhead(clampPlayheadToTrim(trimStart));
 	return true;
 	} finally {
 		restoringScene = false;

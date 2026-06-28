@@ -108,7 +108,7 @@ class ComfyBlockout:
         return float("NaN")
 
     def process(self, scene="", video_ref="", unique_id=None):
-        # `scene` carries the frontend's stable UUID (see comfy3d.js getStableNodeId).
+        # `scene` carries the frontend's stable UUID (see comfyblockout.js getStableNodeId).
         # Falls back to unique_id when the workflow is already saved + IDs are stable.
         node_key = scene.strip() if scene else (str(unique_id) if unique_id else None)
 
