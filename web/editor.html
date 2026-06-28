@@ -1718,8 +1718,9 @@ function updateDebugHud() {
 		const kind = sel.userData?.primKind || sel.type || "?";
 		const p = sel.position;
 		const s = sel.scale;
+		const displayName = sel.userData?.filename || sel.name || "(unnamed)";
 		selBlock =
-			`selected: ${sel.name || "(unnamed)"}\n` +
+			`selected: ${displayName}\n` +
 			`  kind=${kind}\n` +
 			`  pos=(${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)})\n` +
 			`  scale=(${s.x.toFixed(2)}, ${s.y.toFixed(2)}, ${s.z.toFixed(2)})`;
@@ -2606,7 +2607,11 @@ async function loadScene() {
 		console.log(`[ComfyBlockout] load_scene (${IS_PREVIEW ? "preview" : "editor"}) node=${NODE_ID}`,
 			j.scene ? { primitives: j.scene.primitives?.length, imports: j.scene.imports?.length, raw: j.scene } : "(empty)");
 		if (j.scene) {
-			return await deserializeScene(j.scene);
+			// Initial restore must NOT trigger the post-deserialize saveScene flush — if
+			// any import (asset fetch) fails transiently, the followup save would persist
+			// the now-partial state and permanently corrupt disk. User actions trigger
+			// their own saves; the load path stays read-only.
+			return await deserializeScene(j.scene, { skipSave: true });
 		}
 	} catch (e) {
 		console.warn("[ComfyBlockout] scene load failed:", e);
@@ -2751,7 +2756,9 @@ document.getElementById("project-open").addEventListener("click", async () => {
 	updateStatus(`opening ${name}…`);
 	const j = await loadProject(name);
 	if (!j.success) { updateStatus(`open failed: ${j.error || "unknown"}`); return; }
-	await deserializeScene(j.scene);
+	// Backend already persisted scene + assets — no need for the post-deserialize save,
+	// and skipping it avoids clobbering disk if any asset fetch transiently fails.
+	await deserializeScene(j.scene, { skipSave: true });
 	applyProjectName(name);
 	updateStatus(`opened · ${name}`);
 	// Ask the parent to fully rebuild the in-node preview iframe — live scene-sync
