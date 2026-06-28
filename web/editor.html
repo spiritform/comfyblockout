@@ -26,10 +26,10 @@
 	#renderCanvas { width: 100%; height: 100%; display: block; }
 
 	#timeline {
-		flex: 0 0 auto; height: 60px;
+		flex: 0 0 auto; height: 72px;
 		background: rgba(14,14,18,0.96);
 		border-top: 1px solid rgba(255,255,255,0.06);
-		display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+		display: flex; align-items: center; gap: 8px; padding: 14px 14px 8px;
 		font-family: inherit; user-select: none;
 	}
 
@@ -153,8 +153,15 @@
 		font-family: inherit; line-height: 1;
 	}
 	#tl-addkey { font-size: 24px; }
+	.tl-btn.flash-green { animation: tlFlashGreen 0.5s ease-out; }
+	@keyframes tlFlashGreen {
+		0%   { background: #38d977; color: #fff; }
+		100% { background: rgba(255,255,255,0.06); color: #ccc; }
+	}
 	#tl-rewind { font-size: 11px; letter-spacing: -2px; }
 	.tl-btn:hover { background: rgba(255,255,255,0.12); }
+	.tl-btn:focus, .tl-btn:focus-visible { outline: none; }
+	.pv-btn:focus, .pv-btn:focus-visible { outline: none; }
 	.tl-btn.active { background: rgba(255,180,84,0.18); color: #ffd28a; }
 	.tl-btn.rec { color: #ff7a7a; }
 	.tl-btn.rec.recording { background: rgba(255,80,80,0.22); color: #fff; animation: pulse 1s infinite; }
@@ -187,15 +194,24 @@
 		cursor: ew-resize; pointer-events: auto;
 	}
 	#tl-scrub-wrap:hover { cursor: ew-resize; }
+	/* Keyframe = small diamond above the bar (grabbable) + thin grey line inside the bar. */
 	.tl-key {
-		position: absolute; top: 0; bottom: 0;
-		width: 15px; background: #38d977;
-		transform: translateX(-50%);
-		cursor: grab; z-index: 5;
+		position: absolute; top: -14px;
+		width: 10px; height: 10px;
+		background: #38d977;
+		transform: translateX(-50%) rotate(45deg);
+		cursor: grab; z-index: 12;
+		user-select: none; -webkit-user-select: none;
 	}
 	.tl-key:hover { background: #5ce594; }
-	.tl-key.selected { background: #fff; } /* same z as other keys — playhead (z 10) stays grabbable on top */
+	.tl-key.selected { background: #fff; }
 	.tl-key.dragging { cursor: grabbing; }
+	.tl-key-line {
+		position: absolute; top: 0; bottom: 0;
+		width: 1px; background: rgba(255,255,255,0.22);
+		transform: translateX(-50%);
+		pointer-events: none; z-index: 4;
+	}
 
 	/* Dim the bar OUTSIDE the trim region so the selected range pops */
 	#tl-trim-pre, #tl-trim-post {
@@ -229,8 +245,9 @@
 		background: rgba(10,10,14,0.6); backdrop-filter: blur(8px);
 		border: 1px solid rgba(255,255,255,0.08); border-radius: 20px;
 		padding: 5px 14px;
+		display: none; /* hidden — info was redundant; recording state shows on the rec button */
 	}
-	#status.recording { color: #ff8a8a; border-color: rgba(255,80,80,0.3); }
+	#status.recording { display: block; color: #ff8a8a; border-color: rgba(255,80,80,0.3); }
 
 	#panel {
 		position: relative; z-index: 100;
@@ -287,7 +304,7 @@
 	.out-row .color-swatch::-webkit-color-swatch { border: none; border-radius: 2px; }
 
 	.slider-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
-	.slider-row label { flex: 0 0 70px; font-size: 11px; color: rgba(255,255,255,0.5); }
+	.slider-row label { flex: 0 0 auto; font-size: 11px; color: rgba(255,255,255,0.5); }
 	.slider-row input[type="range"] {
 		flex: 1; -webkit-appearance: none; appearance: none; height: 3px;
 		background: rgba(255,255,255,0.1); border-radius: 2px; outline: none;
@@ -332,7 +349,7 @@
 
 	#aspect-frame {
 		position: absolute; z-index: 5; pointer-events: none;
-		border: 1px solid rgba(255,180,84,0.6);
+		border: 1px solid rgba(255,255,255,0.12);
 		box-shadow: 0 0 0 9999px rgba(0,0,0,0.55);
 		display: none;
 	}
@@ -476,7 +493,6 @@
 				<button class="btn" id="mode-scale" data-mode="scale">Scale</button>
 				<button class="btn" id="mode-anchor" title="Move the pivot — geometry shifts inside the object so its visible position stays put. Future rotation/scale happen around the new pivot.">Pivot</button>
 			</div>
-			<div class="hint">W move · E rotate · R scale · Ctrl+D duplicate · Del remove</div>
 		</div>
 
 		<div class="section">
@@ -508,6 +524,7 @@
 				</label>
 				<button class="btn active" id="toggle-grid">Grid</button>
 				<button class="btn" id="toggle-guides">Guides</button>
+				<button class="btn active" id="toggle-ar" title="Toggle aspect ratio overlay (frame + letterbox)">AR</button>
 			</div>
 		</div>
 
@@ -519,11 +536,6 @@
 				<span class="slider-val" id="fov-val">55°</span>
 			</div>
 			<div class="hint">F to frame scene · scroll to dolly · drag to orbit</div>
-		</div>
-
-		<div class="section">
-			<div class="section-label">System Prompt (String Output)</div>
-			<textarea id="prompt-text" rows="4" placeholder="Render this blockout scene. Match the exact camera angle, composition, scale, and object orientation — but do not use the blockout to define the style, colors, or creative direction. Only use the grid as reference for the scene perspective and not as an element to include in the generated image or video"></textarea>
 		</div>
 
 		<div class="section">
@@ -550,12 +562,17 @@
 				<span class="slider-val" id="fps-val">30</span>
 			</div>
 		</div>
+
+		<div class="section">
+			<div class="section-label">System Prompt (String Output)</div>
+			<textarea id="prompt-text" rows="4" placeholder="Render this blockout scene. Match the exact camera angle, composition, scale, and object orientation — but do not use the blockout to define the style, colors, or creative direction. Only use the grid as reference for the scene perspective and not as an element to include in the generated image or video"></textarea>
+		</div>
 	</div>
 
 	<div id="viewport-area">
 		<div id="canvas-wrap">
 			<canvas id="renderCanvas"></canvas>
-			<div id="aspect-frame" class="no-guides"><span class="v1"></span><span class="v2"></span><span class="label" id="aspect-label">16:9</span></div>
+			<div id="aspect-frame" class="no-guides"><span class="v1"></span><span class="v2"></span></div>
 			<div id="status">idle · 0 objects</div>
 			<div id="info-block" style="position:absolute;top:6px;left:6px;background:rgba(20,20,24,0.85);border-radius:6px;z-index:11;display:flex;flex-direction:column;align-items:flex-start">
 				<button id="info-btn" title="Scene info" style="width:24px;height:24px;border:none;background:transparent;color:rgba(255,255,255,0.55);font:11px serif;font-style:italic;font-weight:600;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center">i</button>
@@ -747,7 +764,7 @@ const PRIM_DEFS = {
 	capsule:  () => new THREE.CapsuleGeometry(0.4, 1.2, 8, 16),
 	cylinder: () => new THREE.CylinderGeometry(0.5, 0.5, 1.2, 24),
 	cone:     () => new THREE.ConeGeometry(0.6, 1.4, 24),
-	plane:    () => new THREE.PlaneGeometry(2, 2),
+	plane:    () => new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), // lie flat on the grid
 };
 
 const primCounters = {};
@@ -1442,6 +1459,15 @@ guidesToggle.addEventListener("click", () => {
 	saveScene?.();
 });
 
+const arToggle = document.getElementById("toggle-ar");
+let arVisible = true;
+arToggle.addEventListener("click", () => {
+	arVisible = !arVisible;
+	arToggle.classList.toggle("active", arVisible);
+	aspectFrame.style.display = arVisible ? "block" : "none";
+	saveScene?.();
+});
+
 const bgColorInput = document.getElementById("bg-color");
 function applyBgColor(hex) {
 	renderer.setClearColor(hex);
@@ -1497,7 +1523,6 @@ envIntensity.addEventListener("change", () => { if (typeof saveSceneDebounced ==
 
 const aspectSelect = document.getElementById("aspect");
 const aspectFrame = document.getElementById("aspect-frame");
-const aspectLabel = document.getElementById("aspect-label");
 
 function currentAspect() {
 	const v = aspectSelect.value;
@@ -1508,7 +1533,7 @@ function currentAspect() {
 
 function updateAspectFrame() {
 	const asp = currentAspect();
-	if (!asp) { aspectFrame.style.display = "none"; return; }
+	if (!asp || !arVisible) { aspectFrame.style.display = "none"; return; }
 	const vs = viewportSize();
 	// Preview mode (small in-node iframe) deserves a much tighter margin so the framing actually represents the shot
 	const margin = IS_PREVIEW ? 6 : 50;
@@ -1521,7 +1546,6 @@ function updateAspectFrame() {
 	aspectFrame.style.height = h + "px";
 	aspectFrame.style.left = (vs.w - w) / 2 + "px";
 	aspectFrame.style.top = (vs.h - h) / 2 + "px";
-	aspectLabel.textContent = asp.str;
 }
 
 aspectSelect.addEventListener("change", updateAspectFrame);
@@ -1548,6 +1572,21 @@ window.addEventListener("keydown", (e) => {
 	if (e.code === "Space") {
 		e.preventDefault();
 		isPlayingPreview ? stopPreview() : playPreview();
+		return;
+	}
+	if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+		e.preventDefault();
+		stopPreview();
+		const fps = parseInt(document.getElementById("fps").value, 10) || 30;
+		const dur = currentDuration();
+		// One-frame step in normalized timeline units, scaled up by Shift for a coarser scrub.
+		const step = (1 / fps / dur) * (e.shiftKey ? 10 : 1);
+		const gap = trimGap();
+		const dir = e.key === "ArrowLeft" ? -1 : 1;
+		const t = Math.max(trimStart + gap, Math.min(trimEnd - gap, playhead + dir * step));
+		setPlayhead(t);
+		const s = sampleCameraAt(t);
+		if (s) applyCameraState(s);
 		return;
 	}
 	if (e.key === "w") transform.setMode("translate");
@@ -1803,13 +1842,14 @@ const EASE_OPTIONS = [
 	{ id: "easeOut",   label: "ease out" },
 	{ id: "easeInOut", label: "ease in/out" },
 ];
-function showEaseMenu(k, x, y) {
+function showEaseMenu(k, anchor) {
 	// Tear down any existing menu so right-clicking a new key replaces the old one.
 	document.querySelectorAll(".ease-menu").forEach(el => el.remove());
 	const menu = document.createElement("div");
 	menu.className = "ease-menu";
+	// Render off-screen first so we can measure, then anchor centered above the keyframe.
 	Object.assign(menu.style, {
-		position: "fixed", left: `${x}px`, top: `${y}px`,
+		position: "fixed", left: "-9999px", top: "-9999px",
 		zIndex: "9999",
 		background: "#1a1a20", border: "1px solid rgba(255,255,255,0.06)",
 		borderRadius: "6px", padding: "4px 0",
@@ -1872,10 +1912,19 @@ function showEaseMenu(k, x, y) {
 	};
 	menu.appendChild(del);
 	document.body.appendChild(menu);
-	// Clamp to viewport so it never opens off-screen at the right edge.
-	const rect = menu.getBoundingClientRect();
-	if (rect.right > window.innerWidth) menu.style.left = `${window.innerWidth - rect.width - 4}px`;
-	if (rect.bottom > window.innerHeight) menu.style.top = `${window.innerHeight - rect.height - 4}px`;
+	// Anchor the menu centered above the keyframe diamond. Falls back to below if there's
+	// no room above. Horizontal position is clamped to the viewport.
+	const a = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : anchor;
+	const menuRect = menu.getBoundingClientRect();
+	const anchorCx = a ? (a.left + a.width / 2) : window.innerWidth / 2;
+	const anchorTop = a ? a.top : window.innerHeight / 2;
+	const anchorBottom = a ? a.bottom : window.innerHeight / 2;
+	let left = anchorCx - menuRect.width / 2;
+	let top = anchorTop - menuRect.height - 8;
+	if (top < 8) top = anchorBottom + 8; // flip below if above doesn't fit
+	left = Math.max(4, Math.min(window.innerWidth - menuRect.width - 4, left));
+	menu.style.left = `${left}px`;
+	menu.style.top = `${top}px`;
 	const onDocDown = (ev) => { if (!menu.contains(ev.target)) cleanup(); };
 	const onKey = (ev) => { if (ev.key === "Escape") cleanup(); };
 	function cleanup() {
@@ -1951,17 +2000,22 @@ function renderKeyframeMarkers() {
 		}
 	}
 	for (const k of keyframes) {
+		// Grey vertical line inside the bar marking the keyframe position (visual only).
+		const line = document.createElement("div");
+		line.className = "tl-key-line";
+		line.style.left = `${k.t * 100}%`;
+		tlKeys.appendChild(line);
+
+		// Green diamond above the bar — interactive target (drag + right-click).
 		const m = document.createElement("div");
 		m.className = "tl-key" + (k === selectedKey ? " selected" : "");
 		m.style.left = `${k.t * 100}%`;
-		m.title = `keyframe @ ${(k.t * 100).toFixed(0)}% — click to seek · drag to retime · Delete to remove`;
+		m.title = `keyframe @ ${(k.t * 100).toFixed(0)}% — click to select · drag to retime · right-click for ease · Delete to remove`;
 
 		let dragStartX, dragStartT, didDrag = false;
 		m.addEventListener("pointerdown", e => {
 			if (e.button !== 0) { e.stopPropagation(); return; } // let right-click reach contextmenu cleanly
 			e.stopPropagation();
-			// Set selection without rebuilding markers — pointercapture stays valid on this element.
-			// Just swap the "selected" class on the live elements.
 			selectedKey = k;
 			for (const el of tlKeys.querySelectorAll(".tl-key")) el.classList.remove("selected");
 			m.classList.add("selected");
@@ -1980,6 +2034,7 @@ function renderKeyframeMarkers() {
 			const gap = trimGap();
 			k.t = Math.max(trimStart + gap, Math.min(trimEnd - gap, dragStartT + dx));
 			m.style.left = `${k.t * 100}%`;
+			line.style.left = `${k.t * 100}%`;
 		});
 		m.addEventListener("pointerup", e => {
 			if (!m.hasPointerCapture(e.pointerId)) return;
@@ -1989,13 +2044,17 @@ function renderKeyframeMarkers() {
 				keyframes.sort((a, b) => a.t - b.t);
 				renderKeyframeMarkers();
 				saveSceneDebounced?.();
+			} else {
+				// Click without drag = select + jump playhead to the keyframe.
+				stopPreview();
+				setPlayhead(k.t);
+				applyCameraState(k);
 			}
-			// Click without drag = select only — don't move the playhead.
 		});
 		m.addEventListener("contextmenu", e => {
 			e.preventDefault();
 			e.stopPropagation();
-			showEaseMenu(k, e.clientX, e.clientY);
+			showEaseMenu(k, m);
 		});
 
 		tlKeys.appendChild(m);
@@ -2025,31 +2084,39 @@ function deleteKeyframes() {
 	saveSceneDebounced?.();
 }
 
-tlAddKey.addEventListener("click", addKeyframe);
+tlAddKey.addEventListener("click", () => {
+	addKeyframe();
+	tlAddKey.classList.remove("flash-green");
+	void tlAddKey.offsetWidth; // force reflow so the animation restarts on repeat clicks
+	tlAddKey.classList.add("flash-green");
+});
 tlClearKey.addEventListener("click", deleteKeyframes);
 
 tlScrub.addEventListener("pointerdown", e => {
-	// Allow scrub when clicking the timeline bg, ruler, playhead bar, or playhead head.
-	// Keyframe/trim handlers call stopPropagation so their drags don't fall through here.
+	if (e.button !== 0) return;
+	// Only drag the playhead — click on empty bar bg does nothing (no snap-scrub).
 	const playheadHead = tlPlayhead.querySelector(".head");
-	const allowed = [tlScrub, document.getElementById("tl-ruler"), tlPlayhead, playheadHead];
-	if (!allowed.includes(e.target)) return;
-	// Dead zone near trim handles — if the user aimed near a handle but missed by a few px,
-	// don't scrub there; let them re-aim and grab the handle cleanly.
-	const rect = tlScrub.getBoundingClientRect();
-	const x = e.clientX - rect.left;
-	const startPx = trimStart * rect.width;
-	const endPx = trimEnd * rect.width;
-	if (Math.abs(x - startPx) < 10 || Math.abs(x - endPx) < 10) return;
-	// Any click in the timeline area stops playback and starts scrubbing
+	const grabbingPlayhead = e.target === tlPlayhead || tlPlayhead.contains(e.target) || e.target === playheadHead;
+	if (!grabbingPlayhead) return;
 	stopPreview();
-	selectedKey = null;
-	renderKeyframeMarkers();
+	const rect = tlScrub.getBoundingClientRect();
 	const gap = trimGap();
-	const seek = (x) => {
-		let t = Math.max(0, Math.min(1, (x - rect.left) / rect.width));
-		// Same gap as the resting playhead so scrub doesn't jump past the start/end clamp.
-		t = Math.max(trimStart + gap, Math.min(trimEnd - gap, t));
+	const SNAP_PX = 6;
+	const startCursorX = e.clientX;
+	const startPlayheadT = playhead;
+	const drag = ev => {
+		const dx = (ev.clientX - startCursorX) / rect.width;
+		const raw = Math.max(0, Math.min(1, startPlayheadT + dx));
+		let t = Math.max(trimStart + gap, Math.min(trimEnd - gap, raw));
+		if (!ev.shiftKey) {
+			const snapTol = SNAP_PX / rect.width;
+			let bestDist = Infinity, snapped = t;
+			for (const k of keyframes) {
+				const d = Math.abs(k.t - t);
+				if (d < bestDist && d <= snapTol) { bestDist = d; snapped = k.t; }
+			}
+			t = snapped;
+		}
 		setPlayhead(t);
 		const s = sampleCameraAt(t);
 		if (s) applyCameraState(s);
@@ -2062,13 +2129,11 @@ tlScrub.addEventListener("pointerdown", e => {
 			m.timeScale = prev;
 		}
 	};
-	seek(e.clientX);
-	const onMove = ev => seek(ev.clientX);
 	const onUp = () => {
-		window.removeEventListener("pointermove", onMove);
+		window.removeEventListener("pointermove", drag);
 		window.removeEventListener("pointerup", onUp);
 	};
-	window.addEventListener("pointermove", onMove);
+	window.addEventListener("pointermove", drag);
 	window.addEventListener("pointerup", onUp);
 });
 

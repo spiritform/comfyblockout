@@ -64,23 +64,31 @@ function previewUrl(nodeId) {
     return `extensions/ComfyBlockout/editor.html?node_id=${encodeURIComponent(nodeId)}&mode=preview&t=${Date.now()}`;
 }
 
-const DEFAULT_SCENE = {
-    primitives: [{
-        kind: "cube",
-        name: "Cube.001",
-        position: [0, 0.5, 0],
-        rotation: [0, 0, 0],
-        scale: [1, 1, 1],
-        color: 0xbfc6d4,
-        visible: true,
-    }],
-    camera: { position: [2.2, 1.6, 2.8], target: [0, 0.5, 0], fov: 55 },
-    aspect: "16:9",
-    env: { preset: "studio", intensity: 1.0 },
-    viewport: { grid: true, guides: false, bg: "#07080b" },
-    keyframes: [],
-    imports: [],
-};
+// Same palette as editor.html → so the default cube reads as a clearly nameable color
+// when it shows up in the preview iframe, and persists identically across reopens.
+const DEFAULT_CUBE_PALETTE = [
+    0xff3838, 0x3578ff, 0x35d854, 0xffd138, 0xff8a1f, 0xa047ff,
+    0xff5fbf, 0x2cd9d9, 0xc7e93b, 0xe83ad1, 0xffffff, 0x444444,
+];
+function buildDefaultScene() {
+    return {
+        primitives: [{
+            kind: "cube",
+            name: "Cube.001",
+            position: [0, 0.5, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color: DEFAULT_CUBE_PALETTE[Math.floor(Math.random() * DEFAULT_CUBE_PALETTE.length)],
+            visible: true,
+        }],
+        camera: { position: [2.2, 1.6, 2.8], target: [0, 0.5, 0], fov: 55 },
+        aspect: "16:9",
+        env: { preset: "studio", intensity: 1.0 },
+        viewport: { grid: true, guides: false, bg: "#07080b" },
+        keyframes: [],
+        imports: [],
+    };
+}
 
 async function seedDefaultIfEmpty(nodeId) {
     try {
@@ -90,7 +98,7 @@ async function seedDefaultIfEmpty(nodeId) {
         await fetch("/comfyblockout/save_scene", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ node_id: nodeId, scene: DEFAULT_SCENE }),
+            body: JSON.stringify({ node_id: nodeId, scene: buildDefaultScene() }),
         });
         return true;
     } catch (e) {
