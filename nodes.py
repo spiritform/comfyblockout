@@ -51,12 +51,28 @@ except ImportError:
     HAS_CV2 = False
     print("[ComfyBlockout] cv2 not available — IMAGE output will be black fallback")
 
-try:
-    from comfy_api.input.video_types import VideoFromFile
-    HAS_VIDEO_TYPE = True
-except Exception:
-    HAS_VIDEO_TYPE = False
+# VideoFromFile lives in different paths across ComfyUI versions. The original import
+# we used (`comfy_api.input.video_types`) only re-exports VideoInput these days, so the
+# import was silently failing and process() was returning a plain str — which breaks
+# downstream nodes (Seedance's `'str' object has no attribute 'get_dimensions'`).
+VideoFromFile = None
+for _modpath in (
+    "comfy_api.latest._input_impl.video_types",
+    "comfy_api.input_impl.video_types",
+    "comfy_api.input.video_types",
+):
+    try:
+        _mod = __import__(_modpath, fromlist=["VideoFromFile"])
+        if hasattr(_mod, "VideoFromFile"):
+            VideoFromFile = getattr(_mod, "VideoFromFile")
+            break
+    except Exception:
+        pass
+HAS_VIDEO_TYPE = VideoFromFile is not None
+if not HAS_VIDEO_TYPE:
     print("[ComfyBlockout] comfy_api VideoFromFile unavailable — VIDEO output will be a path string")
+else:
+    print(f"[ComfyBlockout] VideoFromFile resolved from {VideoFromFile.__module__}")
 
 
 _video_store = {}
