@@ -73,8 +73,40 @@ DEFAULT_PROMPT = (
 
 
 def _temp_dir() -> Path:
-    d = Path(folder_paths.get_temp_directory()) / "comfy3d"
+    # Persistent across restarts. ComfyUI Desktop wipes get_temp_directory() between
+    # sessions, which would delete named projects + per-node scene state. The user
+    # directory survives (it's where ComfyUI stores workflows, user css, etc.).
+    base = None
+    try:
+        base = Path(folder_paths.get_user_directory())
+    except Exception:
+        pass
+    if base is None:
+        # Older ComfyUI builds may lack get_user_directory; fall back to a sibling
+        # of the temp folder so we at least land on the same drive.
+        base = Path(folder_paths.get_temp_directory()).parent / "user"
+    d = base / "comfyblockout"
     d.mkdir(parents=True, exist_ok=True)
+
+    # One-shot migration of any existing data from the old temp location so people
+    # upgrading don't lose work that was already there.
+    try:
+        old = Path(folder_paths.get_temp_directory()) / "comfy3d"
+        if old.exists() and old != d:
+            for item in old.iterdir():
+                target = d / item.name
+                if target.exists():
+                    continue
+                try:
+                    if item.is_dir():
+                        shutil.copytree(item, target)
+                    else:
+                        shutil.copy2(item, target)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
     return d
 
 
