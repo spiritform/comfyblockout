@@ -72,29 +72,23 @@ DEFAULT_PROMPT = (
 )
 
 
+_PLUGIN_DIR = Path(__file__).resolve().parent
+_DATA_DIR = _PLUGIN_DIR / "data"
+
+
 def _temp_dir() -> Path:
-    # Persistent across restarts. ComfyUI Desktop wipes get_temp_directory() between
-    # sessions, which would delete named projects + per-node scene state. The user
-    # directory survives (it's where ComfyUI stores workflows, user css, etc.).
-    base = None
-    try:
-        base = Path(folder_paths.get_user_directory())
-    except Exception:
-        pass
-    if base is None:
-        # Older ComfyUI builds may lack get_user_directory; fall back to a sibling
-        # of the temp folder so we at least land on the same drive.
-        base = Path(folder_paths.get_temp_directory()).parent / "user"
-    d = base / "comfyblockout"
-    d.mkdir(parents=True, exist_ok=True)
+    # All persistent data — scenes, assets, recordings, named projects — lives in
+    # `<custom_nodes>/ComfyBlockout/data/` so it survives ComfyUI restarts (Desktop
+    # wipes the temp folder) and is obvious to find / back up.
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     # One-shot migration of any existing data from the old temp location so people
     # upgrading don't lose work that was already there.
     try:
         old = Path(folder_paths.get_temp_directory()) / "comfy3d"
-        if old.exists() and old != d:
+        if old.exists() and old != _DATA_DIR:
             for item in old.iterdir():
-                target = d / item.name
+                target = _DATA_DIR / item.name
                 if target.exists():
                     continue
                 try:
@@ -107,7 +101,7 @@ def _temp_dir() -> Path:
     except Exception:
         pass
 
-    return d
+    return _DATA_DIR
 
 
 def load_image_tensor(path: Path) -> torch.Tensor:

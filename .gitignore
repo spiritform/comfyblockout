@@ -11,3 +11,6 @@ Thumbs.db
 # Local design mockups
 mockup.html
 mockup*.html
+
+# Persistent user data (scenes, assets, recordings, named projects)
+data/
