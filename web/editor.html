@@ -2131,6 +2131,7 @@ function renderKeyframeMarkers() {
 				if (didDrag) {
 					keyframes.sort((a, b) => a.t - b.t);
 					renderKeyframeMarkers();
+					saveSceneDebounced?.();
 				} else {
 					// Click without drag = select + jump playhead to this keyframe.
 					stopPreview();
