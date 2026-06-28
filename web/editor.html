@@ -2972,16 +2972,19 @@ async function autoSnapshot() {
 
 window.addEventListener("message", async (ev) => {
 	if (ev.data?.source !== "comfy3d-parent" || ev.data?.type !== "flush-save") return;
+	// Make close feel instant: dispatch the save via sendBeacon (fire-and-forget, the
+	// browser delivers it even after the modal/iframe is gone) and ack immediately.
+	// The previous version awaited a full POST round-trip + a high-res autoSnapshot
+	// before acking; after a big GLB load that meant ~1-2s of frozen modal, and the
+	// snapshot render was flashing the viewport. The preview iframe regenerates its
+	// own snapshot on next boot anyway, so no work is actually lost.
 	try {
 		const blob = new Blob([JSON.stringify({ node_id: NODE_ID, scene: serializeScene() })], { type: "application/json" });
 		navigator.sendBeacon?.("/comfyblockout/save_scene", blob);
-		await saveScene();
-		await autoSnapshot();
 	} catch (e) {
 		console.warn("[ComfyBlockout] flush-save failed:", e);
-	} finally {
-		window.parent?.postMessage({ source: "comfy3d-editor", type: "save-complete" }, "*");
 	}
+	window.parent?.postMessage({ source: "comfy3d-editor", type: "save-complete" }, "*");
 });
 
 const promptEl = document.getElementById("prompt-text");
