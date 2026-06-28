@@ -2581,9 +2581,22 @@ const autoSnapshotDebounced = (() => {
 		if (restoringScene) return;
 		if (recording || isPlayingPreview) return;
 		clearTimeout(t);
-		t = setTimeout(() => { autoSnapshot().catch(() => {}); }, 800);
+		t = setTimeout(() => { autoSnapshot().catch(() => {}); }, 200);
 	};
 })();
+
+// Parent (comfyblockout.js) hooks app.queuePrompt and asks the preview iframe to
+// flush a fresh snapshot before submitting. Acks back when the upload completes.
+window.addEventListener("message", async (ev) => {
+	if (ev.data?.source !== "comfy3d-parent" || ev.data?.type !== "force-snapshot") return;
+	if (String(ev.data.node_id) !== NODE_ID) return;
+	try { await autoSnapshot(); } catch {}
+	window.parent?.postMessage({
+		source: "comfy3d-" + (IS_PREVIEW ? "preview" : "editor"),
+		type: "force-snapshot-ack",
+		node_id: NODE_ID,
+	}, "*");
+});
 
 async function loadScene() {
 	try {

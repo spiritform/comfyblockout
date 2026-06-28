@@ -289,6 +289,33 @@ app.registerExtension({
         };
         window.addEventListener("message", syncForwarder);
 
+        // Force-snapshot bridge: parent (queuePrompt wrapper) asks the preview iframe to
+        // flush a fresh render before the workflow submits. Resolves on ack with a 1.5s
+        // safety timeout so a stuck iframe never blocks the queue button.
+        node.__c3dForceSnapshot = () => new Promise(resolve => {
+            const target = node.__c3dEditorIframe || ui.previewFrame;
+            if (!target?.contentWindow) { resolve(); return; }
+            let done = false;
+            const onAck = (ev) => {
+                if (done) return;
+                if (ev.data?.type !== "force-snapshot-ack") return;
+                if (String(ev.data.node_id) !== ui.nodeId) return;
+                done = true;
+                window.removeEventListener("message", onAck);
+                resolve();
+            };
+            window.addEventListener("message", onAck);
+            target.contentWindow.postMessage({
+                source: "comfy3d-parent", type: "force-snapshot", node_id: ui.nodeId,
+            }, "*");
+            setTimeout(() => {
+                if (done) return;
+                done = true;
+                window.removeEventListener("message", onAck);
+                resolve();
+            }, 1500);
+        });
+
         node.__c3dCleanup = () => {
             window.removeEventListener("message", editRequestHandler);
             window.removeEventListener("message", syncForwarder);
@@ -297,6 +324,24 @@ app.registerExtension({
         const origSize = node.size?.slice();
         if (origSize && origSize[1] < 280) node.size[1] = 280;
         if (origSize && origSize[0] < 240) node.size[0] = 240;
+    },
+
+    async setup() {
+        // Wrap app.queuePrompt so every ComfyBlockout node on the canvas flushes a fresh
+        // snapshot before the workflow submits. OrbitControls damping + a small save/snap
+        // debounce can otherwise leave the IMAGE output one frame behind the visible view.
+        const original = app.queuePrompt.bind(app);
+        app.queuePrompt = async (...args) => {
+            try {
+                const nodes = (app.graph?._nodes || []).filter(n => n.comfyClass === NODE_NAME);
+                if (nodes.length) {
+                    await Promise.all(nodes.map(n => n.__c3dForceSnapshot ? n.__c3dForceSnapshot() : Promise.resolve()));
+                }
+            } catch (e) {
+                console.warn("[ComfyBlockout] force-snapshot before queue failed:", e);
+            }
+            return original(...args);
+        };
     },
 });
 
