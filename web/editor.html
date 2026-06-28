@@ -201,11 +201,17 @@
 	}
 	.out-row:hover { background: rgba(255,255,255,0.04); }
 	.out-row.selected { background: rgba(255,180,80,0.14); color: #ffd28a; }
-	.out-row .delete-btn { margin-left: auto; opacity: 0.4; padding: 0 4px; }
+	.out-row .delete-btn { opacity: 0.4; padding: 0 4px; }
 	.out-row .delete-btn:hover { opacity: 1; color: #ff8a8a; }
-	.out-row .vis-btn { opacity: 0.55; padding: 0 4px; font-size: 13px; }
+	.out-row .vis-btn { margin-left: auto; opacity: 0.55; padding: 0 4px; font-size: 13px; }
 	.out-row .vis-btn:hover { opacity: 1; }
 	.out-row.hidden span:not(.vis-btn):not(.delete-btn) { opacity: 0.35; text-decoration: line-through; }
+	.out-row .color-swatch {
+		width: 14px; height: 14px; padding: 0; border: 1px solid rgba(255,255,255,0.1);
+		border-radius: 3px; background: none; cursor: pointer; flex-shrink: 0;
+	}
+	.out-row .color-swatch::-webkit-color-swatch-wrapper { padding: 0; }
+	.out-row .color-swatch::-webkit-color-swatch { border: none; border-radius: 2px; }
 
 	.slider-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
 	.slider-row label { flex: 0 0 70px; font-size: 11px; color: rgba(255,255,255,0.5); }
@@ -259,7 +265,9 @@
 	}
 	#aspect-frame::before, #aspect-frame::after,
 	#aspect-frame .v1, #aspect-frame .v2 {
-		content: ""; position: absolute; background: rgba(255,255,255,0.12); pointer-events: none;
+		content: ""; position: absolute; pointer-events: none;
+		/* difference blend → guide lines stay visible on both light and dark backgrounds */
+		background: rgba(255,255,255,0.22); mix-blend-mode: difference;
 	}
 	#aspect-frame.no-guides::before,
 	#aspect-frame.no-guides::after,
@@ -348,6 +356,18 @@
 
 	<div id="panel">
 		<div class="section">
+			<div class="section-head-row">
+				<span class="section-label">Project · <span id="project-name" style="color:rgba(255,255,255,0.85);font-weight:600;letter-spacing:0">untitled</span></span>
+			</div>
+			<div class="row" style="gap:4px">
+				<button class="btn" id="project-new" title="Clear scene and start fresh">New</button>
+				<button class="btn" id="project-open" title="Open a saved project">Open</button>
+				<button class="btn" id="project-save" title="Save (Ctrl+S)">Save</button>
+				<button class="btn" id="project-save-as" title="Save as a new project">Save As</button>
+			</div>
+		</div>
+
+		<div class="section">
 			<div class="section-label">Add Block</div>
 			<div class="prim-grid">
 				<button class="prim-btn" data-prim="cube" title="Cube"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12L4 7.5M12 12l8-4.5M12 12v9"/></svg></button>
@@ -362,7 +382,7 @@
 		<div class="section">
 			<div class="section-label">Import</div>
 			<div class="row">
-				<button class="btn" id="import-btn">Drop or browse · GLB · FBX · OBJ · PLY · SPLAT · SPZ</button>
+				<button class="btn" id="import-btn">GLB · FBX · OBJ · PLY · SPLAT · SPZ</button>
 				<input type="file" id="import-file" accept=".glb,.gltf,.fbx,.obj,.ply,.splat,.ksplat,.spz" hidden multiple>
 			</div>
 		</div>
@@ -577,7 +597,9 @@ transform.addEventListener("dragging-changed", (e) => {
 const transformHelper = transform.getHelper ? transform.getHelper() : transform;
 scene.add(transformHelper);
 
-const grid = new THREE.GridHelper(20, 20, 0x444466, 0x222233);
+let grid = new THREE.GridHelper(20, 20, 0x888888, 0x888888);
+grid.material.transparent = true;
+grid.material.opacity = 0.18;
 scene.add(grid);
 
 const hemi = new THREE.HemisphereLight(0xb0c4ff, 0x202020, 0.35);
@@ -1084,11 +1106,37 @@ function deleteObject(obj) {
 	if (typeof saveScene === "function") saveScene();
 }
 
+// Curated palette of clearly nameable colors. Each new block picks one at random
+// (no immediate repeats) so the scene reads as "the red cube is the car,
+// the blue cylinder is the building..." when prompting Seedance / Nano Banana / Flux.
+const NAMED_BLOCK_COLORS = [
+	0xff3838, // red
+	0x3578ff, // blue
+	0x35d854, // green
+	0xffd138, // yellow
+	0xff8a1f, // orange
+	0xa047ff, // purple
+	0xff5fbf, // pink
+	0x2cd9d9, // cyan
+	0xc7e93b, // lime
+	0xe83ad1, // magenta
+	0xffffff, // white
+	0x444444, // dark grey
+];
+let lastNamedColorIdx = -1;
+function pickNamedBlockColor() {
+	let idx;
+	do { idx = Math.floor(Math.random() * NAMED_BLOCK_COLORS.length); }
+	while (idx === lastNamedColorIdx && NAMED_BLOCK_COLORS.length > 1);
+	lastNamedColorIdx = idx;
+	return NAMED_BLOCK_COLORS[idx];
+}
+
 function addPrimitive(kind) {
 	primCounters[kind] = (primCounters[kind] || 0) + 1;
 	const geom = PRIM_DEFS[kind]();
 	const mat = new THREE.MeshStandardMaterial({
-		color: new THREE.Color().setHSL(Math.random(), 0.3, 0.5),
+		color: new THREE.Color(pickNamedBlockColor()),
 		roughness: 0.7, metalness: 0.0,
 	});
 	const mesh = new THREE.Mesh(geom, mat);
@@ -1136,7 +1184,14 @@ function refreshOutliner() {
 	for (const obj of objects) {
 		const row = document.createElement("div");
 		row.className = "out-row" + (obj === selected ? " selected" : "") + (obj.visible === false ? " hidden" : "");
-		row.innerHTML = `<span class="vis-btn" title="Show/hide">${obj.visible === false ? "○" : "◉"}</span><span>${obj.name}</span><span class="delete-btn" title="Delete">✕</span>`;
+		const hex = obj.material?.color ? "#" + obj.material.color.getHexString() : "#ffffff";
+		row.innerHTML = `<input type="color" class="color-swatch" value="${hex}" title="Change color"><span>${obj.name}</span><span class="vis-btn" title="Show/hide">${obj.visible === false ? "○" : "◉"}</span><span class="delete-btn" title="Delete">✕</span>`;
+		const swatch = row.querySelector(".color-swatch");
+		swatch.addEventListener("click", e => e.stopPropagation());
+		swatch.addEventListener("input", e => {
+			if (obj.material?.color) obj.material.color.setStyle(e.target.value);
+			saveScene?.();
+		});
 		row.addEventListener("click", (e) => {
 			if (e.target.classList.contains("delete-btn")) { deleteObject(obj); return; }
 			if (e.target.classList.contains("vis-btn")) { toggleVisibility(obj); return; }
@@ -1316,6 +1371,7 @@ function applyBgColor(hex) {
 }
 bgColorInput.addEventListener("input", e => applyBgColor(e.target.value));
 bgColorInput.addEventListener("change", () => saveScene?.());
+
 
 function frameScene() {
 	const targets = selected ? [selected] : objects;
@@ -1940,6 +1996,7 @@ function notifyParentSaved() {
 
 function serializeScene() {
 	return {
+		projectName: currentProjectName,
 		primitives: objects.filter(o => o.userData.primKind && (o.userData.primKind in PRIM_DEFS)).map(o => ({
 			kind: o.userData.primKind,
 			name: o.name,
@@ -1990,6 +2047,7 @@ async function deserializeScene(state) {
 	if (!state) return false;
 	restoringScene = true;
 	try {
+	applyProjectName(state.projectName || null);
 	while (objects.length) deleteObject(objects[0]);
 
 	for (const p of (state.primitives || [])) {
@@ -2133,6 +2191,239 @@ async function loadScene() {
 	}
 	return false;
 }
+
+// ── Projects ───────────────────────────────────────────────────────
+let currentProjectName = null;
+const projectNameEl = document.getElementById("project-name");
+function applyProjectName(name) {
+	currentProjectName = name || null;
+	projectNameEl.textContent = currentProjectName || "untitled";
+	projectNameEl.style.color = currentProjectName ? "#ffd28a" : "rgba(255,255,255,0.85)";
+}
+
+const EMPTY_SCENE = {
+	primitives: [{
+		kind: "cube", name: "Cube.001",
+		position: [0, 0.5, 0], rotation: [0, 0, 0], scale: [1, 1, 1],
+		color: 0xbfc6d4, visible: true,
+	}],
+	camera: { position: [2.2, 1.6, 2.8], target: [0, 0.5, 0], fov: 55 },
+	aspect: "16:9",
+	env: { preset: "studio", intensity: 1.0 },
+	viewport: { grid: true, guides: false, bg: "#07080b" },
+	keyframes: [],
+	imports: [],
+	trim: { start: 0, end: 1 },
+};
+
+async function listProjects() {
+	const r = await fetch("/comfyblockout/projects/list");
+	const j = await r.json();
+	return j.projects || [];
+}
+async function saveProject(name) {
+	const r = await fetch("/comfyblockout/projects/save", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ node_id: NODE_ID, name, scene: serializeScene() }),
+	});
+	return r.json();
+}
+async function loadProject(name) {
+	const r = await fetch("/comfyblockout/projects/load", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ node_id: NODE_ID, name }),
+	});
+	return r.json();
+}
+async function deleteProject(name) {
+	const r = await fetch("/comfyblockout/projects/delete", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ name }),
+	});
+	return r.json();
+}
+
+function showProjectPicker() {
+	return new Promise(async (resolve) => {
+		const projects = await listProjects();
+		const backdrop = document.createElement("div");
+		Object.assign(backdrop.style, {
+			position: "fixed", inset: "0", zIndex: "9998",
+			background: "rgba(0,0,0,0.65)", display: "flex",
+			alignItems: "center", justifyContent: "center",
+		});
+		const card = document.createElement("div");
+		Object.assign(card.style, {
+			background: "#15151c", border: "1px solid rgba(255,255,255,0.08)",
+			borderRadius: "10px", padding: "18px", minWidth: "320px", maxWidth: "440px",
+			maxHeight: "70vh", overflow: "auto",
+			color: "#ddd", fontFamily: "Inter, sans-serif", fontSize: "12px",
+		});
+		card.innerHTML = `<div style="font-size:13px;font-weight:600;margin-bottom:12px">Open Project</div>`;
+		if (projects.length === 0) {
+			const empty = document.createElement("div");
+			empty.textContent = "No saved projects yet — use Save As to create one.";
+			empty.style.color = "rgba(255,255,255,0.45)";
+			empty.style.padding = "12px 0";
+			card.appendChild(empty);
+		} else {
+			for (const name of projects) {
+				const row = document.createElement("div");
+				Object.assign(row.style, {
+					display: "flex", alignItems: "center", gap: "8px",
+					padding: "8px 10px", borderRadius: "6px", cursor: "pointer",
+				});
+				row.onmouseenter = () => row.style.background = "rgba(255,255,255,0.06)";
+				row.onmouseleave = () => row.style.background = "transparent";
+				const label = document.createElement("span");
+				label.textContent = name;
+				label.style.flex = "1";
+				const del = document.createElement("span");
+				del.textContent = "✕";
+				Object.assign(del.style, { opacity: "0.4", padding: "0 6px", cursor: "pointer" });
+				del.onmouseenter = () => { del.style.opacity = "1"; del.style.color = "#ff8a8a"; };
+				del.onmouseleave = () => { del.style.opacity = "0.4"; del.style.color = ""; };
+				del.onclick = async (e) => {
+					e.stopPropagation();
+					if (!confirm(`Delete project "${name}"? This removes the saved scene and its asset copies.`)) return;
+					await deleteProject(name);
+					row.remove();
+				};
+				row.append(label, del);
+				row.onclick = () => { cleanup(); resolve(name); };
+				card.appendChild(row);
+			}
+		}
+		const closeRow = document.createElement("div");
+		Object.assign(closeRow.style, { textAlign: "right", marginTop: "14px" });
+		const closeBtn = document.createElement("button");
+		closeBtn.textContent = "Cancel";
+		Object.assign(closeBtn.style, {
+			background: "rgba(255,255,255,0.08)", border: "none", color: "#fff",
+			padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontFamily: "inherit", fontSize: "11px",
+		});
+		closeBtn.onclick = () => { cleanup(); resolve(null); };
+		closeRow.appendChild(closeBtn);
+		card.appendChild(closeRow);
+		backdrop.appendChild(card);
+		document.body.appendChild(backdrop);
+		const onKey = (e) => { if (e.key === "Escape") { cleanup(); resolve(null); } };
+		document.addEventListener("keydown", onKey);
+		function cleanup() {
+			document.removeEventListener("keydown", onKey);
+			backdrop.remove();
+		}
+	});
+}
+
+document.getElementById("project-new").addEventListener("click", async () => {
+	if (objects.length > 0 && !confirm("Start a new scene? Unsaved changes to the current node will be replaced.")) return;
+	await deserializeScene(EMPTY_SCENE);
+	applyProjectName(null);
+	await saveScene();
+	updateStatus("new scene");
+});
+
+document.getElementById("project-open").addEventListener("click", async () => {
+	const name = await showProjectPicker();
+	if (!name) return;
+	updateStatus(`opening ${name}…`);
+	const j = await loadProject(name);
+	if (!j.success) { updateStatus(`open failed: ${j.error || "unknown"}`); return; }
+	await deserializeScene(j.scene);
+	applyProjectName(name);
+	updateStatus(`opened · ${name}`);
+});
+
+function showNamePrompt(title, suggested) {
+	return new Promise((resolve) => {
+		const backdrop = document.createElement("div");
+		Object.assign(backdrop.style, {
+			position: "fixed", inset: "0", zIndex: "9998",
+			background: "rgba(0,0,0,0.65)", display: "flex",
+			alignItems: "center", justifyContent: "center",
+		});
+		const card = document.createElement("div");
+		Object.assign(card.style, {
+			background: "#15151c", border: "1px solid rgba(255,255,255,0.08)",
+			borderRadius: "10px", padding: "18px", minWidth: "320px",
+			color: "#ddd", fontFamily: "Inter, sans-serif", fontSize: "12px",
+		});
+		card.innerHTML = `<div style="font-size:13px;font-weight:600;margin-bottom:12px">${title}</div>`;
+		const input = document.createElement("input");
+		input.type = "text";
+		input.value = suggested || "";
+		Object.assign(input.style, {
+			width: "100%", padding: "8px 10px", borderRadius: "6px",
+			background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.1)",
+			color: "#fff", fontFamily: "inherit", fontSize: "12px", outline: "none",
+		});
+		card.appendChild(input);
+		const row = document.createElement("div");
+		Object.assign(row.style, { display: "flex", justifyContent: "flex-end", gap: "6px", marginTop: "14px" });
+		const cancel = document.createElement("button");
+		cancel.textContent = "Cancel";
+		const ok = document.createElement("button");
+		ok.textContent = "Save";
+		for (const b of [cancel, ok]) {
+			Object.assign(b.style, {
+				border: "none", padding: "6px 14px", borderRadius: "6px",
+				cursor: "pointer", fontFamily: "inherit", fontSize: "11px",
+			});
+		}
+		cancel.style.background = "rgba(255,255,255,0.08)";
+		cancel.style.color = "#fff";
+		ok.style.background = "rgba(255,180,84,0.28)";
+		ok.style.color = "#ffd28a";
+		row.append(cancel, ok);
+		card.appendChild(row);
+		backdrop.appendChild(card);
+		document.body.appendChild(backdrop);
+		setTimeout(() => { input.focus(); input.select(); }, 0);
+		const cleanup = (val) => { document.removeEventListener("keydown", onKey); backdrop.remove(); resolve(val); };
+		const onKey = (e) => {
+			if (e.key === "Escape") cleanup(null);
+			else if (e.key === "Enter") cleanup(input.value.trim() || null);
+		};
+		document.addEventListener("keydown", onKey);
+		cancel.onclick = () => cleanup(null);
+		ok.onclick = () => cleanup(input.value.trim() || null);
+	});
+}
+
+async function doSaveAs() {
+	const suggested = currentProjectName || "untitled";
+	const name = await showNamePrompt("Save project as", suggested);
+	if (!name) return;
+	const j = await saveProject(name);
+	if (!j.success) { updateStatus(`save failed: ${j.error || "unknown"}`); return; }
+	applyProjectName(name);
+	await saveScene();
+	updateStatus(`saved · ${name} · ${j.assets} asset${j.assets === 1 ? "" : "s"}`);
+}
+
+document.getElementById("project-save-as").addEventListener("click", doSaveAs);
+document.getElementById("project-save").addEventListener("click", async () => {
+	if (!currentProjectName) { doSaveAs(); return; }
+	const j = await saveProject(currentProjectName);
+	if (!j.success) { updateStatus(`save failed: ${j.error || "unknown"}`); return; }
+	await saveScene();
+	updateStatus(`saved · ${currentProjectName}`);
+});
+
+window.addEventListener("keydown", e => {
+	if ((e.ctrlKey || e.metaKey) && e.key === "s" && !IS_PREVIEW) {
+		e.preventDefault();
+		if (currentProjectName) {
+			saveProject(currentProjectName).then(() => updateStatus(`saved · ${currentProjectName}`));
+		} else {
+			doSaveAs();
+		}
+	}
+});
 
 orbit.addEventListener("change", saveSceneDebounced);
 fovSlider.addEventListener("change", saveSceneDebounced);

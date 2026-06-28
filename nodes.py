@@ -457,6 +457,121 @@ async def serve_image(request):
     return web.FileResponse(path, headers={"Content-Type": ctype})
 
 
+_SAFE_PROJECT_NAME = re.compile(r"^[a-zA-Z0-9 _\-\.\(\)]{1,80}$")
+
+
+def _projects_root() -> Path:
+    d = _temp_dir() / "projects"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _project_dir(name: str) -> Path:
+    return _projects_root() / name
+
+
+@PromptServer.instance.routes.get("/comfyblockout/projects/list")
+async def list_projects(request):
+    try:
+        root = _projects_root()
+        names = sorted([p.name for p in root.iterdir() if p.is_dir() and (p / "scene.json").exists()])
+        return web.json_response({"projects": names})
+    except Exception as e:
+        return web.json_response({"projects": [], "error": str(e)})
+
+
+@PromptServer.instance.routes.post("/comfyblockout/projects/save")
+async def save_project(request):
+    """Snapshot the current node's scene + assets into a named project folder."""
+    try:
+        data = await request.json()
+        node_id = str(data.get("node_id", "")).strip()
+        name = str(data.get("name", "")).strip()
+        scene = data.get("scene")
+        if not node_id or not name or scene is None:
+            return web.json_response({"success": False, "error": "Missing node_id, name, or scene"}, status=400)
+        if not _SAFE_PROJECT_NAME.match(name):
+            return web.json_response({"success": False, "error": "Invalid project name (a-z, 0-9, space, _, -, ., parens)"}, status=400)
+
+        pdir = _project_dir(name)
+        # Wipe existing project assets so deleted imports don't linger.
+        if pdir.exists():
+            shutil.rmtree(pdir)
+        (pdir / "assets").mkdir(parents=True, exist_ok=True)
+
+        # Copy every asset referenced in scene.imports[] from the node's asset dir → project dir.
+        src_assets = _asset_dir(node_id)
+        copied = 0
+        for im in (scene.get("imports", []) or []):
+            asset_id = im.get("assetId")
+            filename = im.get("filename") or ""
+            ext = filename.split(".")[-1].lower() if "." in filename else "bin"
+            if not asset_id:
+                continue
+            src = src_assets / f"{asset_id}.{ext}"
+            if src.exists():
+                shutil.copy2(src, pdir / "assets" / src.name)
+                copied += 1
+
+        (pdir / "scene.json").write_text(json.dumps(scene, indent=2), encoding="utf-8")
+        print(f"[ComfyBlockout] save_project name={name} assets={copied} → {pdir}")
+        return web.json_response({"success": True, "assets": copied})
+    except Exception as e:
+        print(f"[ComfyBlockout] save_project FAILED: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+@PromptServer.instance.routes.post("/comfyblockout/projects/load")
+async def load_project(request):
+    """Copy a project's assets into the calling node's asset dir, then return scene JSON."""
+    try:
+        data = await request.json()
+        node_id = str(data.get("node_id", "")).strip()
+        name = str(data.get("name", "")).strip()
+        if not node_id or not name or not _SAFE_PROJECT_NAME.match(name):
+            return web.json_response({"success": False, "error": "Bad node_id or name"}, status=400)
+
+        pdir = _project_dir(name)
+        scene_path = pdir / "scene.json"
+        if not scene_path.exists():
+            return web.json_response({"success": False, "error": "Project not found"}, status=404)
+
+        # Copy project assets into the node's asset dir so existing serve_asset URLs resolve.
+        dest = _asset_dir(node_id)
+        src_assets = pdir / "assets"
+        copied = 0
+        if src_assets.exists():
+            for f in src_assets.iterdir():
+                if f.is_file():
+                    shutil.copy2(f, dest / f.name)
+                    copied += 1
+
+        scene = json.loads(scene_path.read_text(encoding="utf-8"))
+        # Persist into this node's scene store so a reopen of the node body picks it up.
+        _scene_store[node_id] = scene
+        (_temp_dir() / f"node_{node_id}.scene.json").write_text(json.dumps(scene), encoding="utf-8")
+        print(f"[ComfyBlockout] load_project name={name} → node {node_id} (assets={copied})")
+        return web.json_response({"success": True, "scene": scene, "assets": copied})
+    except Exception as e:
+        print(f"[ComfyBlockout] load_project FAILED: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+@PromptServer.instance.routes.post("/comfyblockout/projects/delete")
+async def delete_project(request):
+    try:
+        data = await request.json()
+        name = str(data.get("name", "")).strip()
+        if not name or not _SAFE_PROJECT_NAME.match(name):
+            return web.json_response({"success": False, "error": "Bad name"}, status=400)
+        pdir = _project_dir(name)
+        if pdir.exists():
+            shutil.rmtree(pdir)
+        return web.json_response({"success": True})
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
 NODE_CLASS_MAPPINGS = {
     "ComfyBlockout": ComfyBlockout,
 }
