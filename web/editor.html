@@ -1524,9 +1524,11 @@ function frameScene() {
 
 document.getElementById("duration").addEventListener("input", e => {
 	document.getElementById("duration-val").textContent = `${parseFloat(e.target.value).toFixed(1)}s`;
+	saveSceneDebounced?.();
 });
 document.getElementById("fps").addEventListener("input", e => {
 	document.getElementById("fps-val").textContent = e.target.value;
+	saveSceneDebounced?.();
 });
 
 const envSelect = document.getElementById("env-preset");
