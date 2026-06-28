@@ -202,8 +202,11 @@ class ComfyBlockout:
 
     def _make_video_output(self, path):
         if path is None:
-            placeholder = _temp_dir() / "empty.mp4"
-            return str(placeholder)
+            raise RuntimeError(
+                "ComfyBlockout: no video has been recorded for this node yet. "
+                "Open the editor (or use the in-node record button) and press Record "
+                "to capture the camera path, then re-queue."
+            )
         if HAS_VIDEO_TYPE:
             try:
                 return VideoFromFile(str(path))
