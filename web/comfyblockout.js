@@ -71,12 +71,21 @@ const DEFAULT_CUBE_PALETTE = [
     0xff5fbf, 0x2cd9d9, 0xc7e93b, 0xe83ad1, 0xffffff, 0x444444,
 ];
 function buildDefaultScene() {
-    // Empty scene — no auto-seeded cube. Fresh nodes start blank; the user adds blocks
-    // via the panel buttons or loads a project via Open. This avoids the "every tab
-    // switch shows a new random-color cube" symptom that came from re-seeding when
-    // the node UID didn't survive a workflow-tab round-trip.
+    // Fresh node = one cube + ground-friendly camera. Safe to re-seed now that
+    // getStableNodeId no longer claims stale recent UIDs — a recreated node only
+    // gets a new UID if both widget value and properties dropped (eg unsaved-
+    // workflow tab switch), which the user signs up for by not saving the workflow.
+    const color = DEFAULT_CUBE_PALETTE[Math.floor(Math.random() * DEFAULT_CUBE_PALETTE.length)];
     return {
-        primitives: [],
+        primitives: [{
+            kind: "cube",
+            name: "Cube",
+            position: [0, 0.5, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            color,
+            visible: true,
+        }],
         camera: { position: [2.2, 1.6, 2.8], target: [0, 0.5, 0], fov: 55 },
         aspect: "16:9",
         env: { preset: "studio", intensity: 1.0 },
@@ -149,7 +158,7 @@ function pushRecentUid(uid) {
         const i = list.indexOf(uid);
         if (i >= 0) list.splice(i, 1);
         list.unshift(uid);
-        list.splice(8); // cap
+        list.splice(16);
         localStorage.setItem(RECENT_UIDS_KEY, JSON.stringify(list));
     } catch {}
 }
@@ -158,18 +167,74 @@ function loadRecentUids() {
     catch { return []; }
 }
 
+// True while we're inside app.loadGraphData / graph.configure — ie ComfyUI is restoring
+// nodes from a workflow JSON, a tab switch, or a file load. nodeCreated callbacks that
+// fire during this window are restorations, NOT fresh user drops, and may legally fall
+// back to the recent-UIDs list when their widget value didn't survive. Fresh drops
+// happen outside this window and still get a clean new UID + cube.
+let isLoadingWorkflow = false;
+function inWorkflowLoad() { return isLoadingWorkflow; }
+function wrapLoader(target, methodName) {
+    if (!target || typeof target[methodName] !== "function") return;
+    const orig = target[methodName].bind(target);
+    target[methodName] = function (...args) {
+        const wasLoading = isLoadingWorkflow;
+        isLoadingWorkflow = true;
+        let result;
+        try { result = orig(...args); }
+        catch (e) { isLoadingWorkflow = wasLoading; throw e; }
+        if (result && typeof result.then === "function") {
+            return result.finally(() => { isLoadingWorkflow = wasLoading; });
+        }
+        // Sync: clear after the next microtask so the synchronously-fired nodeCreated
+        // cascade still sees the flag (and any microtask-scheduled handlers do too).
+        queueMicrotask(() => { isLoadingWorkflow = wasLoading; });
+        return result;
+    };
+}
+// Live ComfyBlockout UIDs in the current graph — used to filter recent-UIDs so the
+// second node restoring doesn't grab the same one as the first.
+function claimedUidsInGraph() {
+    const claimed = new Set();
+    try {
+        for (const n of (window.__c3dApp?.graph?._nodes || [])) {
+            if (n.comfyClass !== NODE_NAME) continue;
+            const u = n.properties?.comfyblockout_uid;
+            if (u) claimed.add(u);
+        }
+    } catch {}
+    return claimed;
+}
+
+// True when this nodeCreated represents a real user drop — NOT a workflow restore /
+// tab switch / file load. Restores never need a fresh cube; only user-initiated drops
+// should seed one. Without this gate, tab returns kept clobbering saved scenes.
+function isFreshNode(node) {
+    if (inWorkflowLoad()) return false;
+    if (node.properties?.comfyblockout_uid) return false;
+    const sceneWidget = node.widgets?.find(w => w.name === "scene");
+    const wv = typeof sceneWidget?.value === "string" ? sceneWidget.value.trim() : "";
+    if (/^cb_[0-9a-f]+$/i.test(wv)) return false;
+    if (node.id != null && node.id !== -1) {
+        const stored = loadNodeUidMap()[String(node.id)];
+        if (/^cb_[0-9a-f]+$/i.test(stored || "")) return false;
+    }
+    return true;
+}
+
 function getStableNodeId(node) {
     // LiteGraph assigns node.id = -1 for freshly-dropped, unsaved nodes — collision-prone.
-    // We persist the UID via FOUR channels because ComfyUI Desktop's workflow-tab switching
-    // on an unsaved workflow has been observed to drop properties + widget values + reset
-    // node.id, leaving us with nothing in-graph to recover from:
-    //   1) node.properties.comfyblockout_uid  — preferred, fast in-memory
-    //   2) the "scene" widget's value         — survives widget_values serialization
+    // Recovery channels (in order):
+    //   1) node.properties.comfyblockout_uid  — fast in-memory, survives the session
+    //   2) the "scene" widget's value         — survives workflow JSON save/load
     //   3) localStorage keyed by node.id      — survives if node.id was stable
-    //   4) localStorage "recent UIDs" list    — last-resort: claim the most recent UID
-    //      that we haven't already attached to a node this session. Works perfectly for
-    //      single-node workflows; for multi-node, each new node claims the next UID in
-    //      the list. Better than minting a fresh UUID every time and orphaning scenes.
+    //
+    // The previous "claim most recent UID" fallback was removed: it made freshly-dropped
+    // nodes silently inherit some other node's scene, breaking the basic invariant that
+    // a new node should be a new scene. The tradeoff: ComfyUI Desktop tab-switching on
+    // an UNSAVED workflow drops channels 1+2 and resets node.id, so the scene appears
+    // blank on return. Saving the workflow (Ctrl+S) before tab-switching keeps channel 2
+    // intact and the scene survives.
     node.properties = node.properties || {};
     let uid = node.properties.comfyblockout_uid;
     if (!uid) {
@@ -182,15 +247,14 @@ function getStableNodeId(node) {
         const stored = m[String(node.id)];
         if (/^cb_[0-9a-f]+$/i.test(stored || "")) uid = stored;
     }
-    if (!uid) {
-        // Claim the most recent UID. Tradeoff: in a multi-node workflow on tab return,
-        // every fresh nodeCreated would grab the same UID and collide. We accept that
-        // for the much more common single-node case where the alternative is orphaning
-        // the saved scene entirely. The previous "claim once per session" guard didn't
-        // help because ComfyUI Desktop replaces the node instance on tab switch — the
-        // old node's UID stayed marked claimed even though that instance was dead.
+    // Channel 4: recent-UIDs fallback, ONLY during workflow loads / tab restores.
+    // Fresh user drops never reach here (they fall through to minting a brand-new UID).
+    // This is what makes scenes survive a tab switch on an unsaved workflow, without
+    // letting a freshly-dropped node silently inherit someone else's saved state.
+    if (!uid && inWorkflowLoad()) {
+        const claimed = claimedUidsInGraph();
         const recent = loadRecentUids();
-        const candidate = recent.find(u => /^cb_[0-9a-f]+$/i.test(u));
+        const candidate = recent.find(u => /^cb_[0-9a-f]+$/i.test(u) && !claimed.has(u));
         if (candidate) uid = candidate;
     }
     if (!uid) {
@@ -234,16 +298,24 @@ function refreshThumbnail(node, ui) {
 }
 
 
+// Module-level registry of open editor modals keyed by UID. A per-node guard isn't enough
+// because ComfyUI Desktop's tab switching can leave behind stale node instances whose
+// `editRequestHandler` window listeners never get torn down — every one of them fires on
+// a single Edit click and opens its own modal for the same UID, which then required N
+// Close clicks to peel apart and showed the wrong scene through the stack.
+const OPEN_EDITORS = new Map();
+
 function openEditor(node) {
-    // If an editor is already open for this node, focus it instead of stacking another
-    // modal. Without this guard, hitting Edit twice — or a request-edit message arriving
-    // again — left two iframes layered, and each Close click only dismissed the topmost.
-    if (node.__c3dEditorIframe && document.body.contains(node.__c3dEditorIframe)) {
-        try { node.__c3dEditorIframe.contentWindow?.focus(); } catch {}
+    const nodeId = getStableNodeId(node);
+
+    // Global guard: if any editor for this UID is already open (even from a stale node
+    // instance), focus it and bail. Catches cross-instance stacking that the per-node
+    // `node.__c3dEditorIframe` check missed.
+    const existing = OPEN_EDITORS.get(nodeId);
+    if (existing && document.body.contains(existing.modal)) {
+        try { existing.iframe.contentWindow?.focus(); } catch {}
         return;
     }
-
-    const nodeId = getStableNodeId(node);
     const url = `${EDITOR_URL}?node_id=${encodeURIComponent(nodeId)}&t=${Date.now()}`;
 
     const modal = document.createElement("div");
@@ -273,14 +345,53 @@ function openEditor(node) {
         cursor: "pointer", fontFamily: "inherit", fontSize: "11px",
     });
     closeBtn.addEventListener("click", () => {
-        // Tell the editor iframe to flush its save via sendBeacon, then drop the modal
-        // immediately. No "Saving…" button-text flicker, no await, no 5s ack timeout —
-        // sendBeacon delivers in the background even after the iframe is torn down.
-        // The preview iframe rebuild (next tick) reads the freshly-saved disk state.
+        // Tell the editor iframe to flush its save via sendBeacon. sendBeacon delivers
+        // in the background even after the iframe is gone, BUT only if its message
+        // handler actually runs first. postMessage is async — if we synchronously
+        // modal.remove() the same tick, the iframe is destroyed before its event loop
+        // dispatches the flush-save message, and the in-flight edit is lost (eg add a
+        // sphere then immediately close → preview still shows the cube).
+        // Two rAFs gives the message handler a chance to fire + queue sendBeacon
+        // before the contentWindow goes away. ~32ms is still indistinguishable from
+        // "instant" to a human clicking Close.
         try { iframe.contentWindow?.postMessage({ source: "comfy3d-parent", type: "flush-save" }, "*"); } catch {}
-        modal.remove();
-        if (node.__c3dRefresh) setTimeout(() => node.__c3dRefresh(), 100);
+        requestAnimationFrame(() => requestAnimationFrame(() => doClose()));
     });
+    const doClose = () => {
+        modal.remove();
+        // Ask the existing preview iframe to re-read /load_scene in place — avoids the
+        // white flash from tearing down + rebuilding the iframe. Wait briefly for an ack,
+        // and fall back to a full rebuild if it doesn't land. The fallback catches stale
+        // extension JS, an iframe that's mid-rebuild, or a node_id mismatch — correctness
+        // wins over flash-free.
+        const pv = node.__c3dGetPreviewFrame?.();
+        let acked = false;
+        const onAck = (ev) => {
+            if (ev.data?.type !== "reload-scene-ack") return;
+            if (String(ev.data.node_id) !== nodeId) return;
+            acked = true;
+            window.removeEventListener("message", onAck);
+        };
+        window.addEventListener("message", onAck);
+        setTimeout(() => {
+            try {
+                pv?.contentWindow?.postMessage(
+                    { source: "comfy3d-parent", type: "reload-scene", node_id: nodeId },
+                    "*",
+                );
+            } catch {}
+            if (!pv) {
+                window.removeEventListener("message", onAck);
+                if (node.__c3dRefresh) node.__c3dRefresh();
+                return;
+            }
+            setTimeout(() => {
+                if (acked) return;
+                window.removeEventListener("message", onAck);
+                if (node.__c3dRefresh) node.__c3dRefresh();
+            }, 600);
+        }, 100);
+    };
     bar.appendChild(closeBtn);
 
     const iframe = document.createElement("iframe");
@@ -296,12 +407,14 @@ function openEditor(node) {
     // Expose the editor iframe so the live-sync forwarder can route preview→editor
     // scene updates while the editor is open.
     node.__c3dEditorIframe = iframe;
+    OPEN_EDITORS.set(nodeId, { modal, iframe });
 
     const onMsg = async (ev) => {
         if (!ev.data || ev.data.source !== "comfy3d-editor") return;
         if (ev.data.type === "thumbnail-refresh") {
             if (node.__c3dRefresh) node.__c3dRefresh();
         } else if (ev.data.type === "closed") {
+            OPEN_EDITORS.delete(nodeId);
             node.__c3dEditorIframe = null;
             modal.remove();
             window.removeEventListener("message", onMsg);
@@ -310,6 +423,7 @@ function openEditor(node) {
     };
     window.addEventListener("message", onMsg);
     const cleanupOnClose = () => {
+        OPEN_EDITORS.delete(nodeId);
         node.__c3dEditorIframe = null;
         window.removeEventListener("message", onMsg);
     };
@@ -323,6 +437,10 @@ app.registerExtension({
     async nodeCreated(node) {
         if (node.comfyClass !== NODE_NAME) return;
 
+        // Snapshot freshness BEFORE buildWidget runs, since getStableNodeId writes
+        // node.properties.comfyblockout_uid and the "scene" widget — any later check
+        // would always look recovered.
+        const fresh = isFreshNode(node);
         const ui = buildWidget(node);
 
         // Pipe the stable UID into the "scene" widget so process() can recover the right
@@ -339,11 +457,20 @@ app.registerExtension({
         });
 
         node.__c3dRefresh = () => refreshThumbnail(node, ui);
+        // Expose the current preview iframe so openEditor's close handler can post
+        // reload-scene to it without tearing the iframe down (which flashes the in-node
+        // viewport white during the rebuild's three.js boot).
+        node.__c3dGetPreviewFrame = () => ui.previewFrame;
 
-        // Seed a default cube scene if this UID has nothing saved yet, then nudge the iframe.
-        seedDefaultIfEmpty(ui.nodeId).then(seeded => {
-            if (seeded) node.__c3dRefresh();
-        });
+        // Only seed a default cube for genuinely just-dropped nodes. Tab-switch returns,
+        // workflow reloads, and project opens all hit a recovery channel — calling
+        // seedDefaultIfEmpty there used to silently clobber existing saved scenes with
+        // a cube on the next /load_scene race.
+        if (fresh) {
+            seedDefaultIfEmpty(ui.nodeId).then(seeded => {
+                if (seeded) node.__c3dRefresh();
+            });
+        }
 
         // Preview iframe's Edit Scene button posts request-edit; route to openEditor for this node.
         const editRequestHandler = (ev) => {
@@ -423,7 +550,18 @@ app.registerExtension({
         node.__c3dCleanup = () => {
             window.removeEventListener("message", editRequestHandler);
             window.removeEventListener("message", syncForwarder);
+            window.removeEventListener("message", refreshRequestHandler);
             document.removeEventListener("visibilitychange", onVisible);
+        };
+
+        // LiteGraph fires onRemoved when a node leaves the graph (delete, workflow load,
+        // tab switch on Desktop). Without this, every recreation left a fossilized set of
+        // window listeners that all responded to `request-edit` for the recovered UID,
+        // stacking up N editor modals from one click.
+        const origOnRemoved = node.onRemoved;
+        node.onRemoved = function (...args) {
+            try { node.__c3dCleanup?.(); } catch {}
+            return origOnRemoved?.apply(this, args);
         };
 
         const origSize = node.size?.slice();
@@ -432,6 +570,16 @@ app.registerExtension({
     },
 
     async setup() {
+        // Expose app so claimedUidsInGraph can walk the live graph without re-importing.
+        window.__c3dApp = app;
+
+        // Mark workflow loads / tab restores so getStableNodeId can use the recent-UIDs
+        // fallback during them — and isFreshNode can refuse to seed a cube. Without these
+        // hooks, an unsaved-workflow tab return mints a new UID and overwrites the saved
+        // scene with a fresh cube.
+        wrapLoader(app, "loadGraphData");
+        if (app.graph) wrapLoader(app.graph, "configure");
+
         // Wrap app.queuePrompt so every ComfyBlockout node on the canvas flushes a fresh
         // snapshot before the workflow submits. OrbitControls damping + a small save/snap
         // debounce can otherwise leave the IMAGE output one frame behind the visible view.

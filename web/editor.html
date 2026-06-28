@@ -2821,6 +2821,28 @@ window.addEventListener("message", async (ev) => {
 	}, "*");
 });
 
+// Non-destructive scene reload from disk. Used by the parent when the editor closes —
+// previously the parent tore down + rebuilt the preview iframe to pick up structural
+// changes (primitives/imports that live-sync deliberately skips), which flashed the
+// in-node viewport white during three.js boot. Re-running loadScene() in the existing
+// iframe keeps the WebGL context + textures alive, so the viewport never blanks.
+//
+// Acks back so the parent can confirm the preview actually re-read disk. If no ack
+// arrives in time, the parent falls back to a full iframe rebuild — correctness over
+// flash-free.
+window.addEventListener("message", async (ev) => {
+	if (ev.data?.source !== "comfy3d-parent" || ev.data?.type !== "reload-scene") return;
+	if (String(ev.data.node_id) !== NODE_ID) return;
+	try { await loadScene(); } catch (e) { console.warn("[ComfyBlockout] reload-scene failed:", e); }
+	try {
+		window.parent?.postMessage({
+			source: "comfy3d-" + (IS_PREVIEW ? "preview" : "editor"),
+			type: "reload-scene-ack",
+			node_id: NODE_ID,
+		}, "*");
+	} catch {}
+});
+
 async function loadScene() {
 	try {
 		const url = `/comfyblockout/load_scene?node_id=${encodeURIComponent(NODE_ID)}&t=${Date.now()}`;
@@ -2967,6 +2989,10 @@ function showProjectPicker() {
 document.getElementById("project-new").addEventListener("click", async () => {
 	if (objects.length > 0 && !confirm("Start a new scene? Unsaved changes to the current node will be replaced.")) return;
 	await deserializeScene(EMPTY_SCENE);
+	// Drop a starter cube so "New" matches the fresh-node experience instead of leaving
+	// the user staring at an empty grid. addPrimitive picks the next palette color.
+	const cube = addPrimitive("cube");
+	if (cube) cube.position.set(0, 0.5, 0);
 	applyProjectName(null);
 	await saveScene();
 	updateStatus("new scene");
