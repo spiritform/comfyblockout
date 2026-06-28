@@ -264,25 +264,14 @@ function openEditor(node) {
         color: "#fff", padding: "6px 12px", borderRadius: "6px",
         cursor: "pointer", fontFamily: "inherit", fontSize: "11px",
     });
-    closeBtn.addEventListener("click", async () => {
-        closeBtn.textContent = "Saving…";
-        closeBtn.disabled = true;
-        try {
-            const acked = new Promise(resolve => {
-                const onAck = (ev) => {
-                    if (ev.data?.source === "comfy3d-editor" && ev.data?.type === "save-complete") {
-                        window.removeEventListener("message", onAck);
-                        resolve();
-                    }
-                };
-                window.addEventListener("message", onAck);
-                setTimeout(() => { window.removeEventListener("message", onAck); resolve(); }, 5000);
-            });
-            iframe.contentWindow?.postMessage({ source: "comfy3d-parent", type: "flush-save" }, "*");
-            await acked;
-        } catch {}
+    closeBtn.addEventListener("click", () => {
+        // Tell the editor iframe to flush its save via sendBeacon, then drop the modal
+        // immediately. No "Saving…" button-text flicker, no await, no 5s ack timeout —
+        // sendBeacon delivers in the background even after the iframe is torn down.
+        // The preview iframe rebuild (next tick) reads the freshly-saved disk state.
+        try { iframe.contentWindow?.postMessage({ source: "comfy3d-parent", type: "flush-save" }, "*"); } catch {}
         modal.remove();
-        if (node.__c3dRefresh) node.__c3dRefresh();
+        if (node.__c3dRefresh) setTimeout(() => node.__c3dRefresh(), 100);
     });
     bar.appendChild(closeBtn);
 
