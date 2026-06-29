@@ -55,7 +55,6 @@
 | Action | Mouse / Key |
 | --- | --- |
 | Orbit around target | Left-drag |
-| Pan | Right-drag |
 | Dolly | Scroll wheel |
 | Free-look (look around in place) | `Alt` + left-drag |
 | Roll / dutch angle | `Alt` + right-drag |
@@ -63,6 +62,20 @@
 | Reset camera to default | `Home` (or the `Reset` button in the Camera panel) |
 
 The Camera panel has six drag-fields — Pos X / Y / Z and Yaw / Pitch / Roll. Drag horizontally on a box to scrub the value (sensitivity is small by default so micro-adjustments are natural), hold `Shift` while dragging for ×0.1 fine mode, or click without dragging to type a value directly.
+
+### Fly mode (Unreal-style)
+
+Hold right-mouse-button anywhere in the viewport to enter fly mode. While RMB is held:
+
+| Action | Key |
+| --- | --- |
+| Look around | Move the mouse |
+| Forward / Back / Strafe Left / Right | `W` / `S` / `A` / `D` |
+| Down / Up (world Y) | `Q` / `E` |
+| Boost ×3 | `Shift` |
+| Adjust fly speed | Scroll wheel |
+
+Release RMB to exit fly mode. The transform-tool shortcuts (`W` / `E` / `R` for move/rotate/scale) are suppressed while fly mode is active so they don't fire when you're flying.
 
 ### Transform
 
@@ -87,8 +100,10 @@ Click an object in the viewport or the outliner to select. The gizmo follows the
 | Step ten frames | `Shift` + `←` / `→` |
 | Drop keyframe at playhead | `+` button in the timeline transport |
 | Select keyframe + jump playhead | Click a diamond |
+| Add / remove keyframe from selection | `Shift` + click a diamond |
 | Retime keyframe | Drag a diamond |
-| Ease menu / delete keyframe | Right-click a diamond |
+| Ease menu (applies to all selected keyframes) | Right-click a diamond |
+| Delete selected keyframes | `Delete` / `Backspace` (or via the ease menu) |
 
 ### Edit
 

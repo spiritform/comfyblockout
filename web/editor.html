@@ -1550,8 +1550,112 @@ canvas.addEventListener("pointerup", e => {
 	saveSceneDebounced?.();
 }, true);
 canvas.addEventListener("contextmenu", e => {
-	if (altCamHeld || altDragging) { e.preventDefault(); e.stopPropagation(); }
+	if (altCamHeld || altDragging || flyMode) { e.preventDefault(); e.stopPropagation(); }
 }, true);
+
+// Unreal-style fly mode. Hold RMB (without Alt) to enter:
+//   Mouse move → yaw/pitch the camera in place (FPS look)
+//   W/A/S/D    → fly forward / left / back / right in view-space
+//   Q / E      → down / up (world Y)
+//   Shift      → ×3 boost while held
+//   Wheel      → adjust fly speed (1.15× / 0.87× per tick)
+let flyMode = false;
+let flyLastX = 0, flyLastY = 0;
+let flyPointerId = null;
+let flyShiftHeld = false;
+let flySpeed = 4;
+const flyKeys = new Set();
+const FLY_KEY_RE = /^[wasdqe]$/;
+function setFlyMode(on) {
+	if (flyMode === on) return;
+	flyMode = on;
+	if (on) {
+		orbit.enabled = false;
+		canvas.style.cursor = "crosshair";
+	} else {
+		orbit.enabled = !altCamHeld;
+		canvas.style.cursor = altCamHeld ? "grab" : "";
+		flyKeys.clear();
+	}
+}
+canvas.addEventListener("pointerdown", e => {
+	if (e.altKey) return;       // Alt+RMB is roll, handled above
+	if (e.button !== 2) return; // RMB only — plain LMB stays as orbit, MMB as pan
+	setFlyMode(true);
+	flyPointerId = e.pointerId;
+	flyLastX = e.clientX;
+	flyLastY = e.clientY;
+	canvas.setPointerCapture(e.pointerId);
+	try { snapshotForUndo(); } catch {}
+	e.preventDefault();
+	e.stopPropagation();
+}, true);
+canvas.addEventListener("pointermove", e => {
+	if (!flyMode || e.pointerId !== flyPointerId) return;
+	const dx = e.clientX - flyLastX;
+	const dy = e.clientY - flyLastY;
+	flyLastX = e.clientX;
+	flyLastY = e.clientY;
+	const sens = 0.003;
+	const offset = new THREE.Vector3().subVectors(orbit.target, camera.position);
+	const upN = camera.up.clone().normalize();
+	offset.applyAxisAngle(upN, -dx * sens);
+	const right = new THREE.Vector3().crossVectors(offset, upN).normalize();
+	if (right.lengthSq() > 0) offset.applyAxisAngle(right, -dy * sens);
+	orbit.target.copy(camera.position).add(offset);
+	orbit.update();
+}, true);
+function endFly(e) {
+	if (!flyMode) return;
+	setFlyMode(false);
+	try { canvas.releasePointerCapture(flyPointerId); } catch {}
+	flyPointerId = null;
+	saveSceneDebounced?.();
+}
+canvas.addEventListener("pointerup", e => {
+	if (e.button === 2 && flyMode) endFly(e);
+}, true);
+canvas.addEventListener("pointercancel", endFly, true);
+canvas.addEventListener("wheel", e => {
+	if (!flyMode) return;
+	e.preventDefault();
+	e.stopPropagation();
+	const factor = e.deltaY < 0 ? 1.15 : 0.87;
+	flySpeed = Math.max(0.5, Math.min(50, flySpeed * factor));
+	updateStatus?.(`fly speed: ${flySpeed.toFixed(1)} u/s`);
+}, true);
+// Listen on window so keys land regardless of focus inside the editor.
+window.addEventListener("keydown", e => {
+	if (e.key === "Shift") flyShiftHeld = true;
+	if (!flyMode) return;
+	const k = e.key.toLowerCase();
+	if (FLY_KEY_RE.test(k)) flyKeys.add(k);
+}, true);
+window.addEventListener("keyup", e => {
+	if (e.key === "Shift") flyShiftHeld = false;
+	const k = e.key.toLowerCase();
+	if (FLY_KEY_RE.test(k)) flyKeys.delete(k);
+}, true);
+window.addEventListener("blur", () => { flyKeys.clear(); flyShiftHeld = false; });
+function tickFlyMovement(dt) {
+	if (!flyMode || flyKeys.size === 0) return;
+	const forward = new THREE.Vector3().subVectors(orbit.target, camera.position).normalize();
+	if (forward.lengthSq() === 0) return;
+	const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+	const worldUp = new THREE.Vector3(0, 1, 0);
+	const move = new THREE.Vector3();
+	if (flyKeys.has("w")) move.add(forward);
+	if (flyKeys.has("s")) move.sub(forward);
+	if (flyKeys.has("d")) move.add(right);
+	if (flyKeys.has("a")) move.sub(right);
+	if (flyKeys.has("e")) move.add(worldUp);
+	if (flyKeys.has("q")) move.sub(worldUp);
+	if (move.lengthSq() === 0) return;
+	move.normalize().multiplyScalar(flySpeed * (flyShiftHeld ? 3 : 1) * dt);
+	camera.position.add(move);
+	orbit.target.add(move);
+	updateCameraSliders?.();
+}
 
 let anchorMode = false;
 let anchorStartPos = null;
@@ -1992,13 +2096,16 @@ window.addEventListener("keydown", (e) => {
 		if (s) applyCameraState(s);
 		return;
 	}
+	// Swallow WASD/QE during fly mode so they drive the camera instead of
+	// firing transform-tool shortcuts (W=translate, E=rotate, R=scale).
+	if (flyMode && FLY_KEY_RE.test(e.key.toLowerCase())) { e.preventDefault(); return; }
 	if (e.key === "w") transform.setMode("translate");
 	else if (e.key === "e") transform.setMode("rotate");
 	else if (e.key === "r") transform.setMode("scale");
 	else if (e.key === "f" || e.key === "F") frameScene();
 	else if (e.key === "Home") { camera.position.set(2.2, 1.6, 2.8); orbit.target.set(0, 0, 0); camera.up.set(0, 1, 0); camera.updateProjectionMatrix(); }
 	else if (e.key === "Delete" || e.key === "Backspace") {
-		if (selectedKey) deleteKeyframes();
+		if (selectedKeys.size) deleteKeyframes();
 		else deleteObject(selected);
 	}
 	else if (e.key === "d" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); duplicateObject(selected); }
@@ -2175,6 +2282,7 @@ function loop() {
 	try {
 		const dt = animClock.getDelta();
 		if (fbxMixers.length) for (const m of fbxMixers) m.update(dt);
+		tickFlyMovement(dt);
 		orbit.update();
 		if (anchorMode) updatePivotMarker();
 		renderer.render(scene, camera);
@@ -2194,7 +2302,8 @@ loop();
 // ── Keyframes / timeline ──────────────────────────────────────────
 let keyframes = [];
 let playhead = 0;
-let selectedKey = null;
+// Set so Shift-click can multi-select keyframes (apply ease to a batch).
+const selectedKeys = new Set();
 let isPlayingPreview = false;
 let trimStart = 0;
 let trimEnd = 1;
@@ -2324,7 +2433,11 @@ function sampleCameraAt(t) {
 		const a = keyframes[i], b = keyframes[i + 1];
 		if (t >= a.t && t <= b.t) {
 			const local = (t - a.t) / (b.t - a.t);
-			const eased = (easings[a.ease] || easings.easeInOut)(local);
+			// b.ease is the INCOMING ease for the segment landing on b (matches
+			// the right-click menu's "INCOMING EASE" header). Previously a.ease
+			// was used, so a "linear" pick on a keyframe applied to the wrong
+			// segment and the incoming move still appeared eased.
+			const eased = (easings[b.ease] || easings.easeInOut)(local);
 			const upA = a.up || new THREE.Vector3(0, 1, 0);
 			const upB = b.up || new THREE.Vector3(0, 1, 0);
 			return {
@@ -2347,6 +2460,10 @@ const EASE_OPTIONS = [
 function showEaseMenu(k, anchor) {
 	// Tear down any existing menu so right-clicking a new key replaces the old one.
 	document.querySelectorAll(".ease-menu").forEach(el => el.remove());
+	// If the right-clicked key is part of a multi-selection, bulk-apply to the
+	// whole selection. Otherwise just edit this key (selection stays untouched).
+	const bulk = selectedKeys.has(k) && selectedKeys.size > 1;
+	const targets = bulk ? Array.from(selectedKeys) : [k];
 	const menu = document.createElement("div");
 	menu.className = "ease-menu";
 	// Render off-screen first so we can measure, then anchor centered above the keyframe.
@@ -2361,7 +2478,7 @@ function showEaseMenu(k, anchor) {
 		userSelect: "none",
 	});
 	const header = document.createElement("div");
-	header.textContent = "INCOMING EASE";
+	header.textContent = bulk ? `INCOMING EASE · ${targets.length} keys` : "INCOMING EASE";
 	Object.assign(header.style, {
 		padding: "6px 14px 4px", fontSize: "9px",
 		color: "rgba(255,255,255,0.4)", letterSpacing: "0.12em",
@@ -2385,7 +2502,8 @@ function showEaseMenu(k, anchor) {
 		row.onmouseenter = () => row.style.background = "rgba(255,255,255,0.06)";
 		row.onmouseleave = () => row.style.background = "transparent";
 		row.onclick = () => {
-			k.ease = opt.id;
+			try { snapshotForUndo(); } catch {}
+			for (const kk of targets) kk.ease = opt.id;
 			renderKeyframeMarkers();
 			saveSceneDebounced?.();
 			cleanup();
@@ -2405,9 +2523,12 @@ function showEaseMenu(k, anchor) {
 	});
 	del.onmouseenter = () => { del.style.background = "rgba(255,80,80,0.14)"; del.style.color = "#ff8a8a"; };
 	del.onmouseleave = () => { del.style.background = "transparent"; del.style.color = "#ddd"; };
+	del.textContent = bulk ? `delete ${targets.length} keyframes` : "delete keyframe";
 	del.onclick = () => {
-		keyframes = keyframes.filter(x => x !== k);
-		if (selectedKey === k) selectedKey = null;
+		try { snapshotForUndo(); } catch {}
+		const targetSet = new Set(targets);
+		keyframes = keyframes.filter(x => !targetSet.has(x));
+		for (const t of targets) selectedKeys.delete(t);
 		renderKeyframeMarkers();
 		saveSceneDebounced?.();
 		cleanup();
@@ -2456,7 +2577,7 @@ function renderKeyframeMarkers() {
 
 			// Green diamond above the bar — the interactive target (drag + right-click).
 			const pm = document.createElement("div");
-			pm.className = "pv-key" + (k === selectedKey ? " selected" : "");
+			pm.className = "pv-key" + (selectedKeys.has(k) ? " selected" : "");
 			pm.style.left = `${k.t * 100}%`;
 			pvKeysEl.appendChild(pm);
 
@@ -2468,9 +2589,17 @@ function renderKeyframeMarkers() {
 				// drag dedupes against the unchanged scene state.
 				try { snapshotForUndo(); } catch {}
 				stopPreview();
-				selectedKey = k;
+				// Shift-click toggles in/out of the selection set; plain click replaces unless
+				// the key is already part of an existing multi-selection (so drag preserves it).
+				if (e.shiftKey) {
+					if (selectedKeys.has(k)) selectedKeys.delete(k);
+					else selectedKeys.add(k);
+				} else if (!selectedKeys.has(k)) {
+					selectedKeys.clear();
+					selectedKeys.add(k);
+				}
 				for (const el of pvKeysEl.querySelectorAll(".pv-key")) el.classList.remove("selected");
-				pm.classList.add("selected");
+				if (selectedKeys.has(k)) pm.classList.add("selected");
 				dragStartX = e.clientX;
 				dragStartT = k.t;
 				didDrag = false;
@@ -2518,9 +2647,9 @@ function renderKeyframeMarkers() {
 
 		// Green diamond above the bar — interactive target (drag + right-click).
 		const m = document.createElement("div");
-		m.className = "tl-key" + (k === selectedKey ? " selected" : "");
+		m.className = "tl-key" + (selectedKeys.has(k) ? " selected" : "");
 		m.style.left = `${k.t * 100}%`;
-		m.title = `keyframe @ ${(k.t * 100).toFixed(0)}% — click to select · drag to retime · right-click for ease · Delete to remove`;
+		m.title = `keyframe @ ${(k.t * 100).toFixed(0)}% — click to select · Shift+click to multi-select · drag to retime · right-click for ease · Delete to remove`;
 
 		let dragStartX, dragStartT, didDrag = false;
 		m.addEventListener("pointerdown", e => {
@@ -2529,9 +2658,17 @@ function renderKeyframeMarkers() {
 			// Snapshot pre-drag so Ctrl+Z restores the keyframe's old time. Click-without-
 			// drag dedupes against the unchanged scene state.
 			try { snapshotForUndo(); } catch {}
-			selectedKey = k;
+			// Shift-click toggles in/out of the selection set; plain click replaces unless
+			// the key is already part of an existing multi-selection (so drag preserves it).
+			if (e.shiftKey) {
+				if (selectedKeys.has(k)) selectedKeys.delete(k);
+				else selectedKeys.add(k);
+			} else if (!selectedKeys.has(k)) {
+				selectedKeys.clear();
+				selectedKeys.add(k);
+			}
 			for (const el of tlKeys.querySelectorAll(".tl-key")) el.classList.remove("selected");
-			m.classList.add("selected");
+			if (selectedKeys.has(k)) m.classList.add("selected");
 			dragStartX = e.clientX;
 			dragStartT = k.t;
 			didDrag = false;
@@ -2585,16 +2722,16 @@ function addKeyframe() {
 	keyframes.push({ t, pos: cap.pos, target: cap.target, up: cap.up, fov: cap.fov, ease: "easeInOut" });
 	keyframes.sort((a, b) => a.t - b.t);
 	// Don't auto-select — newly created keys stay green; selection is an explicit user action.
-	selectedKey = null;
+	selectedKeys.clear();
 	renderKeyframeMarkers();
 	saveSceneDebounced?.();
 }
 
 function deleteKeyframes() {
 	snapshotForUndo();
-	if (selectedKey) {
-		keyframes = keyframes.filter(k => k !== selectedKey);
-		selectedKey = null;
+	if (selectedKeys.size) {
+		keyframes = keyframes.filter(k => !selectedKeys.has(k));
+		selectedKeys.clear();
 	} else {
 		keyframes = [];
 	}
