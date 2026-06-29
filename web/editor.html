@@ -334,6 +334,33 @@
 	}
 	.slider-val { flex: 0 0 32px; text-align: right; font-size: 10px; color: rgba(255,255,255,0.35); font-variant-numeric: tabular-nums; }
 
+	.drag-row { display: flex; gap: 4px; margin-bottom: 5px; }
+	.drag-num {
+		flex: 1; min-width: 0;
+		background: rgba(255,255,255,0.05);
+		border: 1px solid rgba(255,255,255,0.06);
+		border-radius: 4px;
+		padding: 5px 7px;
+		display: flex; align-items: center; justify-content: space-between; gap: 4px;
+		cursor: ew-resize;
+		user-select: none;
+		font-size: 10px;
+		font-variant-numeric: tabular-nums;
+		color: rgba(255,255,255,0.85);
+		transition: background 0.1s, border-color 0.1s;
+		overflow: hidden;
+	}
+	.drag-num:hover { background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.14); }
+	.drag-num.dragging { background: rgba(255,180,84,0.18); border-color: rgba(255,180,84,0.45); color: #ffd28a; }
+	.drag-num.editing { background: rgba(0,0,0,0.3); cursor: text; }
+	.drag-num .drag-label { color: rgba(255,255,255,0.4); font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; flex-shrink: 0; }
+	.drag-num .drag-val { text-align: right; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+	.drag-num input {
+		background: none; border: none; color: inherit; font: inherit; outline: none;
+		width: 100%; text-align: right;
+		font-variant-numeric: tabular-nums; padding: 0;
+	}
+
 	.row { display: flex; gap: 6px; }
 	.btn {
 		flex: 1; background: rgba(255,255,255,0.08); border: none; border-radius: 6px;
@@ -540,8 +567,8 @@
 			</div>
 			<div class="slider-row">
 				<label>Intensity</label>
-				<input type="range" id="env-intensity" min="0" max="3" step="0.05" value="1">
-				<span class="slider-val" id="env-intensity-val">1.00</span>
+				<input type="range" id="env-intensity" min="0" max="3" step="0.05" value="0.2">
+				<span class="slider-val" id="env-intensity-val">0.20</span>
 			</div>
 		</div>
 
@@ -559,13 +586,26 @@
 		</div>
 
 		<div class="section">
-			<div class="section-label">Camera</div>
+			<div class="section-head-row">
+				<div class="section-label">Camera</div>
+				<button class="mini-btn" id="cam-reset" title="Reset camera to default view">Reset</button>
+			</div>
 			<div class="slider-row">
 				<label>FOV</label>
 				<input type="range" id="fov" min="20" max="120" value="55">
 				<span class="slider-val" id="fov-val">55°</span>
 			</div>
-			<div class="hint">F to frame scene · scroll to dolly · drag to orbit</div>
+			<div class="drag-row">
+				<div class="drag-num" id="cam-px"><span class="drag-label">X</span><span class="drag-val">2.20</span></div>
+				<div class="drag-num" id="cam-py"><span class="drag-label">Y</span><span class="drag-val">1.60</span></div>
+				<div class="drag-num" id="cam-pz"><span class="drag-label">Z</span><span class="drag-val">2.80</span></div>
+			</div>
+			<div class="drag-row">
+				<div class="drag-num" id="cam-yaw"><span class="drag-label">Yaw</span><span class="drag-val">0°</span></div>
+				<div class="drag-num" id="cam-pitch"><span class="drag-label">Pitch</span><span class="drag-val">0°</span></div>
+				<div class="drag-num" id="cam-roll"><span class="drag-label">Roll</span><span class="drag-val">0°</span></div>
+			</div>
+			<div class="hint">drag a value sideways to scrub · click to type · Shift = fine · F focus · Alt+drag look · Alt+RMB roll</div>
 		</div>
 
 		<div class="section">
@@ -790,6 +830,7 @@ async function setEnvironment(key) {
 }
 
 applyRoomEnvironment();
+scene.environmentIntensity = 0.2;
 
 const objects = [];
 let selected = null;
@@ -880,9 +921,8 @@ async function loadGLB(arrayBuffer, filename, opts = {}) {
 					if (size > 0) {
 						const scale = 2 / size;
 						root.scale.setScalar(scale);
-						root.position.sub(box.getCenter(new THREE.Vector3()).multiplyScalar(scale));
-						root.position.y = 0.5;
 					}
+					root.position.set(0, 0, 0);
 				}
 				applySavedTransform(root, opts.transform);
 				scene.add(root);
@@ -938,9 +978,8 @@ async function loadFBX(arrayBuffer, filename, opts = {}) {
 			if (size > 0) {
 				const scale = 2 / size;
 				root.scale.setScalar(scale);
-				root.position.sub(box.getCenter(new THREE.Vector3()).multiplyScalar(scale));
-				root.position.y = 0.5;
 			}
+			root.position.set(0, 0, 0);
 		}
 		applySavedTransform(root, opts.transform);
 		// If the FBX shipped animations, prep the first clip — start paused so transport controls drive it
@@ -994,9 +1033,8 @@ async function loadOBJ(arrayBuffer, filename, opts = {}) {
 		if (size > 0) {
 			const scale = 2 / size;
 			root.scale.setScalar(scale);
-			root.position.sub(box.getCenter(new THREE.Vector3()).multiplyScalar(scale));
-			root.position.y = 0.5;
 		}
+		root.position.set(0, 0, 0);
 	}
 	applySavedTransform(root, opts.transform);
 	scene.add(root);
@@ -1163,6 +1201,7 @@ async function loadPlyMesh(arrayBuffer, filename, opts = {}) {
 			});
 			obj = new THREE.Points(geom, mat);
 		}
+		if (!opts.restoring) obj.position.set(0, 0, 0);
 		applySavedTransform(obj, opts.transform);
 		scene.add(obj);
 		if (opts.assetId) obj.userData.assetId = opts.assetId;
@@ -1327,7 +1366,7 @@ function addPrimitive(kind) {
 	});
 	const mesh = new THREE.Mesh(geom, mat);
 	mesh.name = `${kind[0].toUpperCase()}${kind.slice(1)}.${String(primCounters[kind]).padStart(3,"0")}`;
-	mesh.position.set((Math.random()-0.5)*2, 0.6, (Math.random()-0.5)*2);
+	mesh.position.set(0, 0, 0);
 	mesh.userData.primKind = kind;
 	scene.add(mesh);
 	objects.push(mesh);
@@ -1400,6 +1439,7 @@ let pointerDownX = 0, pointerDownY = 0;
 canvas.addEventListener("pointerdown", e => { pointerDownX = e.clientX; pointerDownY = e.clientY; });
 canvas.addEventListener("pointerup", e => {
 	if (transform.dragging || transform.axis) return;
+	if (e.altKey || altCamHeld || altDragging) return;
 	if (Math.abs(e.clientX - pointerDownX) > 4 || Math.abs(e.clientY - pointerDownY) > 4) return;
 	const rect = canvas.getBoundingClientRect();
 	ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1436,6 +1476,82 @@ canvas.addEventListener("pointerup", e => {
 document.querySelectorAll(".prim-btn").forEach(b => {
 	b.addEventListener("click", () => addPrimitive(b.dataset.prim));
 });
+
+// Alt-held camera modifier: layers cinematic moves on top of the default
+// OrbitControls without a mode switch.
+//   Alt+left-drag  = free-look (yaw/pitch the camera in place by rotating
+//                    orbit.target on a sphere around camera.position)
+//   Alt+right-drag = roll (dutch angle) — rotates camera.up around view axis
+// Use F to re-frame + re-center orbit on the selected object.
+let altCamHeld = false;
+let altDragging = false;
+let altDragRoll = false;
+let altLastX = 0, altLastY = 0;
+function setAltCamHeld(on) {
+	if (altCamHeld === on) return;
+	altCamHeld = on;
+	orbit.enabled = !on;
+	canvas.style.cursor = on ? "grab" : "";
+	if (!on && altDragging) altDragging = false;
+}
+window.addEventListener("keydown", e => {
+	if (e.key === "Alt") setAltCamHeld(true);
+});
+window.addEventListener("keyup", e => {
+	if (e.key === "Alt") setAltCamHeld(false);
+});
+window.addEventListener("blur", () => setAltCamHeld(false));
+canvas.addEventListener("pointerdown", e => {
+	// Use e.altKey directly so the very first click after focus-shift works —
+	// the keydown listener doesn't fire when Alt was already held in a parent
+	// frame, but the pointer event always carries the live altKey state.
+	if (!e.altKey) return;
+	if (e.button !== 0 && e.button !== 2) return;
+	// Hard-disable orbit synchronously so OrbitControls' same-element pointerdown
+	// (bubble phase, fires right after this capture-phase one) bails.
+	orbit.enabled = false;
+	altCamHeld = true;
+	altDragging = true;
+	altDragRoll = e.button === 2;
+	altLastX = e.clientX;
+	altLastY = e.clientY;
+	canvas.setPointerCapture(e.pointerId);
+	canvas.style.cursor = "grabbing";
+	try { snapshotForUndo(); } catch {}
+	e.preventDefault();
+	e.stopPropagation();
+}, true);
+canvas.addEventListener("pointermove", e => {
+	if (!altDragging) return;
+	const dx = e.clientX - altLastX;
+	const dy = e.clientY - altLastY;
+	altLastX = e.clientX;
+	altLastY = e.clientY;
+	const sens = 0.005;
+	if (altDragRoll) {
+		const forward = new THREE.Vector3().subVectors(orbit.target, camera.position).normalize();
+		if (forward.lengthSq() > 0) camera.up.applyAxisAngle(forward, -dx * sens).normalize();
+	} else {
+		// Free-look: rotate orbit.target on a sphere around camera.position.
+		const offset = new THREE.Vector3().subVectors(orbit.target, camera.position);
+		const upN = camera.up.clone().normalize();
+		offset.applyAxisAngle(upN, -dx * sens);
+		const right = new THREE.Vector3().crossVectors(offset, upN).normalize();
+		if (right.lengthSq() > 0) offset.applyAxisAngle(right, -dy * sens);
+		orbit.target.copy(camera.position).add(offset);
+	}
+	orbit.update();
+}, true);
+canvas.addEventListener("pointerup", e => {
+	if (!altDragging) return;
+	altDragging = false;
+	try { canvas.releasePointerCapture(e.pointerId); } catch {}
+	canvas.style.cursor = altCamHeld ? "grab" : "";
+	saveSceneDebounced?.();
+}, true);
+canvas.addEventListener("contextmenu", e => {
+	if (altCamHeld || altDragging) { e.preventDefault(); e.stopPropagation(); }
+}, true);
 
 let anchorMode = false;
 let anchorStartPos = null;
@@ -1539,6 +1655,177 @@ fovSlider.addEventListener("input", e => {
 	document.getElementById("fov-val").textContent = `${e.target.value}°`;
 });
 
+// Camera position / rotation drag-fields. Click-drag horizontally on a box to
+// scrub the value (sensitivity is small so micro-adjustments are natural);
+// click without dragging to type a value. Shift = fine (×0.1). Two-way bound:
+// orbit "change" calls updateCameraSliders() which writes the current camera
+// state back into the boxes.
+let suppressSliderSync = false;
+function getYawPitchRoll() {
+	const forward = new THREE.Vector3().subVectors(orbit.target, camera.position);
+	const dist = forward.length();
+	if (dist < 0.0001) return { yaw: 0, pitch: 0, roll: 0, dist: 0, forward: new THREE.Vector3(0, 0, -1) };
+	forward.divideScalar(dist);
+	const yaw = Math.atan2(-forward.x, -forward.z) * 180 / Math.PI;
+	const pitch = Math.asin(Math.max(-1, Math.min(1, forward.y))) * 180 / Math.PI;
+	const worldUp = new THREE.Vector3(0, 1, 0);
+	const canonicalUp = worldUp.clone().sub(forward.clone().multiplyScalar(worldUp.dot(forward)));
+	let roll = 0;
+	if (canonicalUp.lengthSq() > 0.001) {
+		canonicalUp.normalize();
+		const right = new THREE.Vector3().crossVectors(forward, canonicalUp);
+		const upN = camera.up.clone().normalize();
+		roll = Math.atan2(upN.dot(right), upN.dot(canonicalUp)) * 180 / Math.PI;
+	}
+	return { yaw, pitch, roll, dist, forward };
+}
+function applyYawPitchRoll(yawDeg, pitchDeg, rollDeg, dist) {
+	const yaw = yawDeg * Math.PI / 180;
+	const pitch = pitchDeg * Math.PI / 180;
+	const roll = rollDeg * Math.PI / 180;
+	const forward = new THREE.Vector3(
+		-Math.sin(yaw) * Math.cos(pitch),
+		Math.sin(pitch),
+		-Math.cos(yaw) * Math.cos(pitch),
+	);
+	orbit.target.copy(camera.position).add(forward.clone().multiplyScalar(dist));
+	const worldUp = new THREE.Vector3(0, 1, 0);
+	const canonicalUp = worldUp.clone().sub(forward.clone().multiplyScalar(worldUp.dot(forward)));
+	if (canonicalUp.lengthSq() < 0.001) canonicalUp.set(1, 0, 0);
+	canonicalUp.normalize();
+	camera.up.copy(canonicalUp).applyAxisAngle(forward, roll).normalize();
+	orbit.update();
+}
+
+// Drag-field widget: click-drag to scrub, click-without-drag to type.
+const dragFields = [];
+function setupDragField(el, opts) {
+	const valEl = el.querySelector(".drag-val");
+	const fmt = opts.format || (v => v.toFixed(2));
+	function clamp(v) {
+		if (opts.min !== undefined) v = Math.max(opts.min, v);
+		if (opts.max !== undefined) v = Math.min(opts.max, v);
+		return v;
+	}
+	function refresh() { valEl.textContent = fmt(opts.get()); }
+	el._refresh = refresh;
+	dragFields.push(el);
+
+	let startX = 0, startVal = 0, dragged = false, active = false;
+	el.addEventListener("pointerdown", e => {
+		if (el.classList.contains("editing") || e.button !== 0) return;
+		startX = e.clientX;
+		startVal = opts.get();
+		dragged = false;
+		active = true;
+		el.setPointerCapture(e.pointerId);
+		try { snapshotForUndo(); } catch {}
+		e.preventDefault();
+	});
+	el.addEventListener("pointermove", e => {
+		if (!active) return;
+		const dx = e.clientX - startX;
+		if (!dragged && Math.abs(dx) < 3) return;
+		if (!dragged) { dragged = true; el.classList.add("dragging"); }
+		const sens = (opts.sens || 0.01) * (e.shiftKey ? 0.1 : 1);
+		opts.set(clamp(startVal + dx * sens));
+		refresh();
+	});
+	function endDrag(e) {
+		if (!active) return;
+		active = false;
+		try { el.releasePointerCapture(e.pointerId); } catch {}
+		el.classList.remove("dragging");
+		if (!dragged) startEdit();
+		else saveSceneDebounced?.();
+	}
+	el.addEventListener("pointerup", endDrag);
+	el.addEventListener("pointercancel", endDrag);
+
+	function startEdit() {
+		el.classList.add("editing");
+		const input = document.createElement("input");
+		input.type = "text";
+		input.value = String(+opts.get().toFixed(4));
+		valEl.style.display = "none";
+		el.appendChild(input);
+		input.focus();
+		input.select();
+		let done = false;
+		function commit(save) {
+			if (done) return;
+			done = true;
+			if (save) {
+				const num = parseFloat(input.value);
+				if (isFinite(num)) {
+					opts.set(clamp(num));
+					saveSceneDebounced?.();
+				}
+			}
+			el.classList.remove("editing");
+			valEl.style.display = "";
+			input.remove();
+			refresh();
+		}
+		input.addEventListener("blur", () => commit(true));
+		input.addEventListener("keydown", ev => {
+			if (ev.key === "Enter") { ev.preventDefault(); commit(true); }
+			else if (ev.key === "Escape") { ev.preventDefault(); commit(false); }
+		});
+	}
+	refresh();
+}
+
+function setCamPosAxis(axis, v) {
+	suppressSliderSync = true;
+	try {
+		const dv = v - camera.position[axis];
+		camera.position[axis] = v;
+		orbit.target[axis] += dv;
+		orbit.update();
+	} finally { suppressSliderSync = false; }
+}
+function setCamRotAxis(axis, v) {
+	suppressSliderSync = true;
+	try {
+		const ypr = getYawPitchRoll();
+		const dist = ypr.dist || camera.position.distanceTo(orbit.target) || 4;
+		ypr[axis] = v;
+		applyYawPitchRoll(ypr.yaw, ypr.pitch, ypr.roll, dist);
+	} finally { suppressSliderSync = false; }
+}
+
+setupDragField(document.getElementById("cam-px"), { get: () => camera.position.x, set: v => setCamPosAxis("x", v), sens: 0.01 });
+setupDragField(document.getElementById("cam-py"), { get: () => camera.position.y, set: v => setCamPosAxis("y", v), sens: 0.01 });
+setupDragField(document.getElementById("cam-pz"), { get: () => camera.position.z, set: v => setCamPosAxis("z", v), sens: 0.01 });
+setupDragField(document.getElementById("cam-yaw"),   { get: () => getYawPitchRoll().yaw,   set: v => setCamRotAxis("yaw",   v), sens: 0.3, format: v => `${v.toFixed(0)}°` });
+setupDragField(document.getElementById("cam-pitch"), { get: () => getYawPitchRoll().pitch, set: v => setCamRotAxis("pitch", v), sens: 0.3, min: -89, max: 89, format: v => `${v.toFixed(0)}°` });
+setupDragField(document.getElementById("cam-roll"),  { get: () => getYawPitchRoll().roll,  set: v => setCamRotAxis("roll",  v), sens: 0.3, format: v => `${v.toFixed(0)}°` });
+
+function updateCameraSliders() {
+	if (suppressSliderSync) return;
+	for (const el of dragFields) el._refresh?.();
+}
+
+document.getElementById("cam-reset").addEventListener("click", () => {
+	try { snapshotForUndo(); } catch {}
+	suppressSliderSync = true;
+	try {
+		camera.position.set(2.2, 1.6, 2.8);
+		orbit.target.set(0, 0, 0);
+		camera.up.set(0, 1, 0);
+		camera.fov = 55;
+		camera.updateProjectionMatrix();
+		fovSlider.value = 55;
+		document.getElementById("fov-val").textContent = "55°";
+		orbit.update();
+	} finally { suppressSliderSync = false; }
+	updateCameraSliders();
+	saveSceneDebounced?.();
+});
+orbit.addEventListener("change", updateCameraSliders);
+updateCameraSliders();
+
 const gridToggle = document.getElementById("toggle-grid");
 gridToggle.addEventListener("click", () => {
 	grid.visible = !grid.visible;
@@ -1588,8 +1875,14 @@ function frameScene() {
 	}
 	if (!isFinite(box.min.x)) return;
 	const center = box.getCenter(new THREE.Vector3());
-	const size = box.getSize(new THREE.Vector3()).length() || 4;
-	const dist = size * 1.4;
+	const sz = box.getSize(new THREE.Vector3());
+	// Use the largest axis, not the diagonal — flat planes have a long diagonal
+	// but appear small from camera, so .length() over-frames.
+	const maxAxis = Math.max(sz.x, sz.y, sz.z) || 4;
+	const fovRad = camera.fov * Math.PI / 180;
+	// 1.2 × maxAxis / tan(fov/2): comfortable framing for compact objects
+	// without zooming out to the diagonal length for flat ones (planes).
+	const dist = (maxAxis * 1.2) / Math.tan(fovRad / 2);
 	const offset = new THREE.Vector3().subVectors(camera.position, orbit.target).normalize().multiplyScalar(dist);
 	camera.position.copy(center).add(offset);
 	orbit.target.copy(center);
@@ -1703,7 +1996,7 @@ window.addEventListener("keydown", (e) => {
 	else if (e.key === "e") transform.setMode("rotate");
 	else if (e.key === "r") transform.setMode("scale");
 	else if (e.key === "f" || e.key === "F") frameScene();
-	else if (e.key === "Home") { camera.position.set(2.2, 1.6, 2.8); orbit.target.set(0, 0, 0); camera.updateProjectionMatrix(); }
+	else if (e.key === "Home") { camera.position.set(2.2, 1.6, 2.8); orbit.target.set(0, 0, 0); camera.up.set(0, 1, 0); camera.updateProjectionMatrix(); }
 	else if (e.key === "Delete" || e.key === "Backspace") {
 		if (selectedKey) deleteKeyframes();
 		else deleteObject(selected);
@@ -1997,6 +2290,7 @@ function captureCameraState() {
 	return {
 		pos: camera.position.clone(),
 		target: orbit.target.clone(),
+		up: camera.up.clone(),
 		fov: camera.fov,
 	};
 }
@@ -2004,6 +2298,7 @@ function captureCameraState() {
 function applyCameraState(state) {
 	camera.position.copy(state.pos);
 	orbit.target.copy(state.target);
+	if (state.up) camera.up.copy(state.up).normalize();
 	camera.fov = state.fov;
 	camera.updateProjectionMatrix();
 }
@@ -2030,9 +2325,12 @@ function sampleCameraAt(t) {
 		if (t >= a.t && t <= b.t) {
 			const local = (t - a.t) / (b.t - a.t);
 			const eased = (easings[a.ease] || easings.easeInOut)(local);
+			const upA = a.up || new THREE.Vector3(0, 1, 0);
+			const upB = b.up || new THREE.Vector3(0, 1, 0);
 			return {
 				pos: new THREE.Vector3().lerpVectors(a.pos, b.pos, eased),
 				target: new THREE.Vector3().lerpVectors(a.target, b.target, eased),
+				up: new THREE.Vector3().lerpVectors(upA, upB, eased).normalize(),
 				fov: a.fov + (b.fov - a.fov) * eased,
 			};
 		}
@@ -2284,7 +2582,7 @@ function addKeyframe() {
 	const t = playhead;
 	keyframes = keyframes.filter(k => Math.abs(k.t - t) > 0.005);
 	const cap = captureCameraState();
-	keyframes.push({ t, pos: cap.pos, target: cap.target, fov: cap.fov, ease: "easeInOut" });
+	keyframes.push({ t, pos: cap.pos, target: cap.target, up: cap.up, fov: cap.fov, ease: "easeInOut" });
 	keyframes.sort((a, b) => a.t - b.t);
 	// Don't auto-select — newly created keys stay green; selection is an explicit user action.
 	selectedKey = null;
@@ -2650,6 +2948,7 @@ function serializeScene() {
 		camera: {
 			position: camera.position.toArray(),
 			target: orbit.target.toArray(),
+			up: camera.up.toArray(),
 			fov: camera.fov,
 		},
 		aspect: aspectSelect.value,
@@ -2670,6 +2969,7 @@ function serializeScene() {
 			t: k.t,
 			pos: k.pos.toArray(),
 			target: k.target.toArray(),
+			up: (k.up || new THREE.Vector3(0, 1, 0)).toArray(),
 			fov: k.fov,
 			ease: k.ease,
 		})),
@@ -2724,6 +3024,8 @@ async function deserializeScene(state, opts = {}) {
 	if (state.camera) {
 		camera.position.fromArray(state.camera.position);
 		orbit.target.fromArray(state.camera.target);
+		if (Array.isArray(state.camera.up)) camera.up.fromArray(state.camera.up).normalize();
+		else camera.up.set(0, 1, 0);
 		camera.fov = state.camera.fov;
 		camera.updateProjectionMatrix();
 		const fovInput = document.getElementById("fov");
@@ -2787,6 +3089,7 @@ async function deserializeScene(state, opts = {}) {
 			t: k.t,
 			pos: new THREE.Vector3().fromArray(k.pos),
 			target: new THREE.Vector3().fromArray(k.target),
+			up: Array.isArray(k.up) ? new THREE.Vector3().fromArray(k.up) : new THREE.Vector3(0, 1, 0),
 			fov: k.fov,
 			ease: k.ease || "easeInOut",
 		}));
@@ -2853,6 +3156,7 @@ function applyLightSync(state) {
 	if (state.camera) {
 		camera.position.fromArray(state.camera.position);
 		orbit.target.fromArray(state.camera.target);
+		if (Array.isArray(state.camera.up)) camera.up.fromArray(state.camera.up).normalize();
 		if (typeof state.camera.fov === "number") {
 			camera.fov = state.camera.fov;
 			camera.updateProjectionMatrix();
@@ -2880,6 +3184,7 @@ function applyLightSync(state) {
 			t: k.t,
 			pos: new THREE.Vector3().fromArray(k.pos),
 			target: new THREE.Vector3().fromArray(k.target),
+			up: Array.isArray(k.up) ? new THREE.Vector3().fromArray(k.up) : new THREE.Vector3(0, 1, 0),
 			fov: k.fov,
 			ease: k.ease || "easeInOut",
 		}));
