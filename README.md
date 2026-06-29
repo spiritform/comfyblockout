@@ -34,6 +34,8 @@
 - Click to select + jump playhead to key, drag to retime, right-click for ease menu
 - Arrow keys frame-step (← / →; Shift for ±10 frames)
 - Playhead snaps to keyframes within 6px while scrubbing (Shift bypasses)
+- Alt-modifier camera moves layered on top of the default orbit: free-look (Alt + left-drag) and roll / dutch angle (Alt + right-drag). Roll is preserved per keyframe so cinematic moves tween cleanly.
+- Camera panel with Blender-style drag-fields: Pos X/Y/Z + Yaw/Pitch/Roll. Drag horizontally to scrub for micro-adjustments, click to type a value, Reset button restores the default view.
 
 **Recording**
 - `canvas.captureStream()` → MediaRecorder → ffmpeg → h264 mp4 with `+faststart` and yuv420p (so it actually plays everywhere)
@@ -45,6 +47,56 @@
 - Projects live at `<comfy_temp>/comfyblockout/projects/<name>/{scene.json, assets/}` and are shared across every ComfyBlockout node on the install
 - Scene + imported asset bytes both auto-save per node, so reopening a workflow restores everything
 - Stable UUID per node so freshly-dropped nodes don't collide on backend storage
+
+## Controls
+
+### Camera
+
+| Action | Mouse / Key |
+| --- | --- |
+| Orbit around target | Left-drag |
+| Pan | Right-drag |
+| Dolly | Scroll wheel |
+| Free-look (look around in place) | `Alt` + left-drag |
+| Roll / dutch angle | `Alt` + right-drag |
+| Frame the selected object (or all objects) | `F` |
+| Reset camera to default | `Home` (or the `Reset` button in the Camera panel) |
+
+The Camera panel has six drag-fields — Pos X / Y / Z and Yaw / Pitch / Roll. Drag horizontally on a box to scrub the value (sensitivity is small by default so micro-adjustments are natural), hold `Shift` while dragging for ×0.1 fine mode, or click without dragging to type a value directly.
+
+### Transform
+
+Click an object in the viewport or the outliner to select. The gizmo follows the current mode:
+
+| Action | Key |
+| --- | --- |
+| Move (translate) | `W` |
+| Rotate | `E` |
+| Scale | `R` |
+| Frame selection | `F` |
+| Delete selected | `Delete` / `Backspace` |
+| Duplicate selected | `Ctrl` + `D` |
+| Copy / Cut / Paste | `Ctrl` + `C` / `X` / `V` |
+
+### Timeline + playback
+
+| Action | Key |
+| --- | --- |
+| Play / pause preview | `Space` |
+| Step one frame | `←` / `→` |
+| Step ten frames | `Shift` + `←` / `→` |
+| Drop keyframe at playhead | `+` button in the timeline transport |
+| Select keyframe + jump playhead | Click a diamond |
+| Retime keyframe | Drag a diamond |
+| Ease menu / delete keyframe | Right-click a diamond |
+
+### Edit
+
+| Action | Key |
+| --- | --- |
+| Undo | `Ctrl` + `Z` |
+| Redo | `Ctrl` + `Shift` + `Z` (or `Ctrl` + `Y`) |
+| Save project | `Ctrl` + `S` |
 
 ## Install
 
