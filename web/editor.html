@@ -2375,8 +2375,18 @@ async function playPreview() {
 	// Resume from current playhead when it's inside the play window; otherwise loop back to start.
 	const resumeT = (playhead > playStart && playhead < playEnd - 1e-4) ? playhead : playStart;
 	setPlayhead(resumeT);
-	for (const m of fbxMixers) m.setTime(resumeT * (dur / 1000));
+	// Snap camera to the resume frame BEFORE the first paint so the viewer
+	// doesn't see a one-frame flash of the previous (end-of-timeline) state
+	// after playback finished or after a scrub.
+	if (hasCameraTween) {
+		const s0 = sampleCameraAt(resumeT);
+		if (s0) applyCameraState(s0);
+	}
+	// THREE.AnimationMixer.setTime() only advances bones when timeScale != 0
+	// (internally it does update(timeInSeconds * timeScale) → 0 if scale is 0).
+	// Set the scale BEFORE seeking so the rig actually lands on the resume frame.
 	setMixersPlaying(true);
+	for (const m of fbxMixers) m.setTime(resumeT * (dur / 1000));
 	const startMs = performance.now();
 	while (isPlayingPreview) {
 		const elapsed = performance.now() - startMs;
@@ -2405,7 +2415,14 @@ function rewindTransport() {
 	stopPreview();
 	setPlayhead(clampPlayheadToTrim(trimStart));
 	const dur = currentDuration();
-	for (const m of fbxMixers) m.setTime(trimStart * dur);
+	// setTime is a no-op while timeScale=0 (see note in playPreview). Force the
+	// mixer active for the seek, then restore the paused state.
+	for (const m of fbxMixers) {
+		const prev = m.timeScale;
+		m.timeScale = 1;
+		m.setTime(trimStart * dur);
+		m.timeScale = prev;
+	}
 	// Snap camera to keyframe at trim start
 	if (keyframes.length) {
 		const s = sampleCameraAt(trimStart);
@@ -2464,12 +2481,20 @@ async function startRecording() {
 	const duration = parseFloat(document.getElementById("duration").value);
 	const fps = parseInt(document.getElementById("fps").value, 10);
 
-	// Reset every FBX animation mixer to t=0 so the recording captures the full clip
-	// from its first frame instead of wherever the animation happened to be when the
-	// user clicked record. Without this the mp4 starts mid-cycle.
+	// Respect the trim handles: recording covers [trimStart, trimEnd] of the
+	// timeline, not the full 0..1. Use the same gap inset that playback uses so
+	// the camera tween starts/ends inside the trim handles.
+	const gap = trimGap();
+	const recStartNorm = trimStart + gap;
+	const recEndNorm = Math.max(recStartNorm + 0.001, trimEnd - gap);
+	const recSpanNorm = recEndNorm - recStartNorm;
+	const recDurationMs = recSpanNorm * duration * 1000;
+
+	// Reset every FBX animation mixer to the trim start so the recording
+	// captures the rig from the same point in its clip the camera tween begins.
 	for (const m of fbxMixers) {
 		m.timeScale = 1;
-		m.setTime(0);
+		m.setTime(recStartNorm * duration);
 	}
 
 	setRecordingMode(true);
@@ -2500,15 +2525,24 @@ async function startRecording() {
 	const useKeyframes = keyframes.length >= 2;
 	const recStartT = performance.now();
 	let tweenRunning = useKeyframes;
+	// Pre-seed playhead + camera to trim-start so the very first captured frame
+	// matches the trimmed window (avoids a one-frame flash from t=last to t=start
+	// when the previous play/record left the camera at the end of the timeline).
+	setPlayhead(recStartNorm);
+	{
+		const s0 = sampleCameraAt(recStartNorm);
+		if (s0) applyCameraState(s0);
+	}
 	if (useKeyframes) {
 		const animate = () => {
 			if (!tweenRunning) return;
 			const elapsed = performance.now() - recStartT;
-			const t = Math.min(1, elapsed / (duration * 1000));
+			const localT = Math.min(1, elapsed / recDurationMs);
+			const t = recStartNorm + localT * recSpanNorm;
 			setPlayhead(t);
 			const s = sampleCameraAt(t);
 			if (s) applyCameraState(s);
-			if (t < 1) requestAnimationFrame(animate);
+			if (localT < 1) requestAnimationFrame(animate);
 		};
 		animate();
 	}
@@ -2523,6 +2557,11 @@ async function startRecording() {
 		recordedBlob = new Blob(recordChunks, { type: "video/webm" });
 		recording = false;
 		setRecordingMode(false);
+		// Pause FBX mixers so the rig doesn't keep animating in the viewport after
+		// the recording ends — startRecording sets timeScale=1 to capture motion,
+		// but the mixer would otherwise stay running forever, breaking playhead
+		// sync in both editor and preview.
+		setMixersPlaying(false);
 		// Restore the renderer back to its visible/aspect-fit size now that capture is done.
 		camera.aspect = prevAspect;
 		camera.updateProjectionMatrix();
@@ -2556,7 +2595,7 @@ async function startRecording() {
 	statusEl.classList.add("recording");
 	statusEl.textContent = `recording · ${duration.toFixed(1)}s @ ${fps}fps${useKeyframes ? ` · ${keyframes.length} keys` : ""}`;
 	mediaRecorder.start();
-	setTimeout(() => { if (mediaRecorder.state === "recording") mediaRecorder.stop(); }, duration * 1000);
+	setTimeout(() => { if (mediaRecorder.state === "recording") mediaRecorder.stop(); }, recDurationMs);
 }
 
 tlRec.addEventListener("click", startRecording);
@@ -3472,6 +3511,17 @@ if (IS_PREVIEW) {
 			setPlayhead(t);
 			const s = sampleCameraAt(t);
 			if (s) applyCameraState(s);
+			// Mirror the editor's scrub: also advance every FBX mixer so bones
+			// follow the playhead instead of running on their own clock. Force
+			// timeScale=1 just for the manual update, then restore.
+			const seconds = t * currentDuration();
+			for (const m of fbxMixers) {
+				const prev = m.timeScale;
+				m.timeScale = 1;
+				const cur = m.time || 0;
+				m.update(seconds - cur);
+				m.timeScale = prev;
+			}
 		};
 		const onUp = () => {
 			window.removeEventListener("pointermove", drag);
