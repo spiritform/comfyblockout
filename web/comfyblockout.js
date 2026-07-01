@@ -328,18 +328,42 @@ function openEditor(node) {
     const bar = document.createElement("div");
     Object.assign(bar.style, {
         display: "flex", alignItems: "center", gap: "12px",
-        padding: "8px 14px", background: "#0a0a0e",
+        padding: "10px 18px", background: "#000",
         borderBottom: "1px solid rgba(255,255,255,0.06)",
         color: "#ccc", fontFamily: "Inter, sans-serif", fontSize: "12px",
     });
+    const projectNameSpan = `<span id="c3d-bar-project" style="color:rgba(255,255,255,0.5);font-weight:400;letter-spacing:0">Untitled</span>`;
     bar.innerHTML = `<span style="letter-spacing:0.02em;color:#fff;font-weight:600;font-size:13px">ComfyBlockout</span>
-        <span style="color:rgba(255,255,255,0.45);font-size:11px">3D Editor Node</span>
-        <span style="color:rgba(255,255,255,0.3);font-family:ui-monospace,monospace;font-size:11px">#${nodeId}</span>`;
+        <span style="color:rgba(255,255,255,0.3);font-size:12px">:</span>
+        ${projectNameSpan}
+        <span style="flex:1"></span>`;
+
+    // Text-link buttons on the right; each posts a project action into the iframe so
+    // the editor keeps ownership of the actual New/Open/Save/Save-As handlers.
+    const makeLink = (label, action) => {
+        const btn = document.createElement("button");
+        btn.textContent = label;
+        Object.assign(btn.style, {
+            background: "transparent", border: "none", color: "rgba(255,255,255,0.75)",
+            padding: "6px 10px", cursor: "pointer",
+            fontFamily: "inherit", fontSize: "12px",
+        });
+        btn.addEventListener("mouseenter", () => { btn.style.color = "#fff"; });
+        btn.addEventListener("mouseleave", () => { btn.style.color = "rgba(255,255,255,0.75)"; });
+        btn.addEventListener("click", () => {
+            try { iframe.contentWindow?.postMessage({ source: "comfy3d-parent", type: "project-action", action }, "*"); } catch {}
+        });
+        return btn;
+    };
+    bar.appendChild(makeLink("New", "new"));
+    bar.appendChild(makeLink("Open", "open"));
+    bar.appendChild(makeLink("Save", "save"));
+    bar.appendChild(makeLink("Save As", "save-as"));
 
     const closeBtn = document.createElement("button");
     closeBtn.textContent = "Close ✕";
     Object.assign(closeBtn.style, {
-        marginLeft: "auto",
+        marginLeft: "4px",
         background: "rgba(255,255,255,0.08)", border: "none",
         color: "#fff", padding: "6px 12px", borderRadius: "6px",
         cursor: "pointer", fontFamily: "inherit", fontSize: "11px",
@@ -413,6 +437,12 @@ function openEditor(node) {
         if (!ev.data || ev.data.source !== "comfy3d-editor") return;
         if (ev.data.type === "thumbnail-refresh") {
             if (node.__c3dRefresh) node.__c3dRefresh();
+        } else if (ev.data.type === "project-name") {
+            const el = bar.querySelector("#c3d-bar-project");
+            if (el) {
+                el.textContent = ev.data.name || "Untitled";
+                el.style.color = ev.data.name ? "#ffd28a" : "rgba(255,255,255,0.5)";
+            }
         } else if (ev.data.type === "closed") {
             OPEN_EDITORS.delete(nodeId);
             node.__c3dEditorIframe = null;

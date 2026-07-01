@@ -16,6 +16,49 @@
 		flex: 1; min-width: 0; height: 100%;
 		display: flex; flex-direction: column;
 	}
+	/* Viewport toolbar — Blender-style strip above the canvas */
+	#viewport-toolbar {
+		flex: 0 0 40px;
+		display: flex; align-items: center; gap: 4px;
+		padding: 0 14px;
+		background: #0a0a10;
+		border-bottom: 1px solid rgba(255,255,255,0.04);
+	}
+	.vt-group { display: flex; align-items: center; gap: 2px; }
+	.vt-group + .vt-group { margin-left: 18px; }
+	.vt-btn {
+		height: 26px; padding: 0 12px; border-radius: 5px; border: none;
+		background: transparent; color: #b0b0b8;
+		font-size: 11px; cursor: pointer; letter-spacing: 0;
+		display: inline-flex; align-items: center; gap: 6px;
+		font-family: inherit;
+	}
+	.vt-btn:hover { background: #14141a; color: #e6e6ea; }
+	.vt-btn.active { background: #14141a; color: #ffb454; }
+	.vt-key {
+		font-size: 9px; opacity: 0.4; margin-left: 5px;
+		font-weight: 600; letter-spacing: 0.5px;
+	}
+	.vt-btn.active .vt-key { opacity: 0.7; }
+	.vt-btn:hover .vt-key { opacity: 0.6; }
+	.vt-icon-btn { padding: 0 8px; }
+	.vt-icon-btn svg { width: 14px; height: 14px; display: block; }
+	.vt-sep { flex: 1; }
+	/* BG color swatch — small square that shows the current color and opens the
+	   native picker on click. Strip the browser's default chrome so it reads as a
+	   pure color chip. */
+	.vt-bg-swatch {
+		width: 22px; height: 22px; border-radius: 4px; margin-left: 4px;
+		border: 1px solid rgba(255,255,255,0.12); overflow: hidden; cursor: pointer;
+		position: relative; display: inline-block;
+	}
+	.vt-bg-swatch input[type="color"] {
+		position: absolute; inset: -4px; width: calc(100% + 8px); height: calc(100% + 8px);
+		border: none; padding: 0; background: transparent; cursor: pointer;
+	}
+	.vt-bg-swatch input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+	.vt-bg-swatch input[type="color"]::-webkit-color-swatch { border: none; }
+	.vt-bg-swatch input[type="color"]::-moz-color-swatch { border: none; }
 	#canvas-wrap {
 		position: relative; flex: 1; min-height: 0;
 		overflow: hidden;
@@ -27,16 +70,19 @@
 	#renderCanvas { display: block; }
 
 	#timeline {
-		flex: 0 0 auto; height: 72px;
+		flex: 0 0 auto; height: 92px;
 		background: rgba(14,14,18,0.96);
 		border-top: 1px solid rgba(255,255,255,0.06);
-		display: flex; align-items: center; gap: 8px; padding: 14px 14px 8px;
+		/* flex-end so the buttons + scrub bar sit at the bottom, leaving room ABOVE
+		   the bar for two stacked diamond rows (camera closer to bar, object above). */
+		display: flex; align-items: flex-end; gap: 3px; padding: 14px 14px 14px;
 		font-family: inherit; user-select: none;
 	}
 
 	/* Preview-mode (in-node iframe): hide chrome, expose tiny floating transport */
 	body.preview-mode #panel,
 	body.preview-mode #timeline,
+	body.preview-mode #viewport-toolbar,
 	body.preview-mode #status,
 	body.preview-mode #info-block,
 	body.preview-mode #drop-overlay,
@@ -163,13 +209,16 @@
 	.pv-trim-handle:hover { background: #ffb454; box-shadow: 0 0 4px rgba(255,180,80,0.7); }
 	.pv-trim-handle.dragging { background: #ffd28a; }
 	.tl-btn {
-		background: rgba(255,255,255,0.06); border: none; border-radius: 6px;
-		color: #ccc; font-size: 16px; font-weight: 700; cursor: pointer;
-		width: 32px; height: 32px;
+		background: rgba(255,255,255,0.08); border: none; border-radius: 6px;
+		color: #e0e0e6; font-size: 16px; font-weight: 700; cursor: pointer;
+		width: 32px; height: 36px;
 		display: flex; align-items: center; justify-content: center;
 		font-family: inherit; line-height: 1;
 	}
-	#tl-addkey { font-size: 24px; }
+	#tl-rec { font-size: 18px; line-height: 1; color: #ff5c5c; }
+	#tl-rec:hover { color: #ff8080; }
+	#tl-play { font-size: 14px; }
+	#tl-addkey { font-size: 20px; line-height: 1; }
 	.tl-btn.flash-green { animation: tlFlashGreen 0.5s ease-out; }
 	@keyframes tlFlashGreen {
 		0%   { background: #38d977; color: #fff; }
@@ -225,6 +274,63 @@
 	.tl-key:hover { background: #5ce594; }
 	.tl-key.selected { background: #fff; }
 	.tl-key.dragging { cursor: grabbing; }
+	.tl-key.flash-new, .pv-key.flash-new { animation: keyFlash 0.55s ease-out; }
+	@keyframes keyFlash {
+		0%   { background: #fff; box-shadow: 0 0 10px rgba(255,255,255,0.9); }
+		60%  { background: #c7f5d6; box-shadow: 0 0 4px rgba(56,217,119,0.5); }
+		100% { background: #38d977; box-shadow: none; }
+	}
+	/* Object keyframe diamonds — cyan. On the main editor timeline they sit in
+	   their own stacked row above camera; on the compact preview transport they
+	   share the camera row (color-only distinction to keep the mini bar tight). */
+	.tl-key.obj {
+		background: #4dc4ff;
+		width: 10px; height: 10px;
+		top: -32px;
+		z-index: 11;
+	}
+	.pv-key.obj {
+		background: #4dc4ff;
+		z-index: 11;
+	}
+	.tl-key.obj:hover, .pv-key.obj:hover { background: #7ad3ff; }
+	.tl-key.obj.selected, .pv-key.obj.selected { background: #fff; }
+	.tl-key.obj.flash-new, .pv-key.obj.flash-new { animation: objKeyFlash 0.55s ease-out; }
+	@keyframes objKeyFlash {
+		0%   { background: #fff; box-shadow: 0 0 10px rgba(255,255,255,0.9); }
+		60%  { background: #c8ecff; box-shadow: 0 0 4px rgba(77,196,255,0.5); }
+		100% { background: #4dc4ff; box-shadow: none; }
+	}
+	/* Through-keys ("free" / positional waypoint) — hollow diamond, no fill.
+	   Stays hollow across all states (hover, selected, dragging) — communicate
+	   state through the outline color/width instead of filling the diamond. */
+	.tl-key.through, .pv-key.through {
+		background: transparent !important;
+		box-shadow: inset 0 0 0 1.5px currentColor;
+		color: #38d977;
+	}
+	.tl-key.obj.through, .pv-key.obj.through { color: #4dc4ff; }
+	.tl-key.through:hover, .pv-key.through:hover {
+		background: transparent !important;
+		box-shadow: inset 0 0 0 2px #fff;
+	}
+	.tl-key.through.selected, .pv-key.through.selected {
+		background: transparent !important;
+		box-shadow: inset 0 0 0 2px #fff, 0 0 6px rgba(255,255,255,0.55);
+	}
+	.tl-key.through.dragging, .pv-key.through.dragging {
+		background: transparent !important;
+	}
+	/* Playhead-active — the playhead is parked on this diamond's time. Stays lit
+	   as long as the playhead is on it (cleared as soon as the playhead moves off). */
+	.tl-key.playhead-active, .pv-key.playhead-active {
+		background: #fff !important;
+		box-shadow: 0 0 6px rgba(255,255,255,0.55);
+	}
+	.tl-key.through.playhead-active, .pv-key.through.playhead-active {
+		background: transparent !important;
+		box-shadow: inset 0 0 0 2px #fff, 0 0 6px rgba(255,255,255,0.55);
+	}
 	.tl-key-line {
 		position: absolute; top: 0; bottom: 0;
 		width: 1px; background: rgba(255,255,255,0.22);
@@ -294,7 +400,7 @@
 	}
 	.mini-btn:hover { background: rgba(255,80,80,0.15); color: #ff8a8a; }
 
-	.prim-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+	.prim-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
 	.prim-btn {
 		aspect-ratio: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.05);
 		border-radius: 6px; display: flex; align-items: center; justify-content: center;
@@ -302,6 +408,8 @@
 	}
 	.prim-btn:hover { background: rgba(255,255,255,0.10); color: #fff; border-color: rgba(255,255,255,0.12); }
 	.prim-btn svg { width: 18px; height: 18px; }
+	.prim-btn[disabled] { opacity: 0.35; cursor: not-allowed; }
+	.prim-btn[disabled]:hover { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.55); border-color: rgba(255,255,255,0.05); }
 
 	.outliner { background: rgba(0,0,0,0.2); border-radius: 6px; padding: 4px; min-height: 30px; }
 	.out-row {
@@ -502,20 +610,19 @@
 <body>
 
 	<div id="panel">
-		<div class="section">
-			<div class="section-head-row">
-				<span class="section-label">Project · <span id="project-name" style="color:rgba(255,255,255,0.85);font-weight:600;letter-spacing:0">untitled</span></span>
-			</div>
-			<div class="row" style="gap:4px">
-				<button class="btn" id="project-new" title="Clear scene and start fresh">New</button>
-				<button class="btn" id="project-open" title="Open a saved project">Open</button>
-				<button class="btn" id="project-save" title="Save (Ctrl+S)">Save</button>
-				<button class="btn" id="project-save-as" title="Save as a new project">Save As</button>
-			</div>
+		<!-- Project actions moved to the host top bar (comfyblockout.js). The hidden
+		     buttons + span are kept as offscreen DOM so the existing editor code
+		     (applyProjectName, event handlers, flashSaveButton) continues to work. -->
+		<div style="display:none">
+			<span id="project-name">untitled</span>
+			<button id="project-new"></button>
+			<button id="project-open"></button>
+			<button id="project-save"></button>
+			<button id="project-save-as"></button>
 		</div>
 
 		<div class="section">
-			<div class="section-label">Add Block</div>
+			<div class="section-label">Objects</div>
 			<div class="prim-grid">
 				<button class="prim-btn" data-prim="cube" title="Cube"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12L4 7.5M12 12l8-4.5M12 12v9"/></svg></button>
 				<button class="prim-btn" data-prim="sphere" title="Sphere"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="8" ry="3"/></svg></button>
@@ -523,15 +630,10 @@
 				<button class="prim-btn" data-prim="cylinder" title="Cylinder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="12" cy="6" rx="6" ry="2"/><path d="M6 6v12a6 2 0 0 0 12 0V6"/></svg></button>
 				<button class="prim-btn" data-prim="cone" title="Cone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="12" cy="20" rx="7" ry="2"/><path d="M5 20L12 3l7 17"/></svg></button>
 				<button class="prim-btn" data-prim="plane" title="Plane"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 16l9-4 9 4-9 4-9-4z"/></svg></button>
+				<button class="prim-btn" data-prim="custom" title="Import — GLB · FBX · OBJ · PLY · SPLAT · SPZ"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 6v6M9 9l3-3 3 3" stroke="#ffb454"/></svg></button>
+				<button class="prim-btn" data-prim="particles" title="Particles (coming soon)" disabled><svg viewBox="0 0 24 24" fill="none"><circle cx="6" cy="6" r="1.3" fill="currentColor"/><circle cx="12" cy="4" r="0.9" fill="currentColor"/><circle cx="18" cy="7" r="1.1" fill="currentColor"/><circle cx="5" cy="13" r="0.9" fill="currentColor"/><circle cx="11" cy="11" r="1.4" fill="currentColor"/><circle cx="17" cy="14" r="1" fill="currentColor"/><circle cx="8" cy="18" r="1.1" fill="currentColor"/><circle cx="15" cy="20" r="0.9" fill="currentColor"/><circle cx="20" cy="17" r="0.8" fill="currentColor"/></svg></button>
 			</div>
-		</div>
-
-		<div class="section">
-			<div class="section-label">Import</div>
-			<div class="row">
-				<button class="btn" id="import-btn">GLB · FBX · OBJ · PLY · SPLAT · SPZ</button>
-				<input type="file" id="import-file" accept=".glb,.gltf,.fbx,.obj,.ply,.splat,.ksplat,.spz" hidden multiple>
-			</div>
+			<input type="file" id="import-file" accept=".glb,.gltf,.fbx,.obj,.ply,.splat,.ksplat,.spz" hidden multiple>
 		</div>
 
 		<div class="section">
@@ -540,16 +642,6 @@
 				<button class="mini-btn" id="clear-btn" title="Clear all objects">Clear</button>
 			</div>
 			<div class="outliner" id="outliner"></div>
-		</div>
-
-		<div class="section">
-			<div class="section-label">Transform</div>
-			<div class="row" style="gap:4px">
-				<button class="btn" id="mode-translate" data-mode="translate">Move</button>
-				<button class="btn" id="mode-rotate" data-mode="rotate">Rotate</button>
-				<button class="btn" id="mode-scale" data-mode="scale">Scale</button>
-				<button class="btn" id="mode-anchor" title="Move the pivot — geometry shifts inside the object so its visible position stays put. Future rotation/scale happen around the new pivot.">Pivot</button>
-			</div>
 		</div>
 
 		<div class="section">
@@ -572,17 +664,12 @@
 			</div>
 		</div>
 
-		<div class="section">
-			<div class="section-label">Display</div>
-			<div class="row" style="gap:4px;align-items:stretch">
-				<label class="bg-row" title="Background color">
-					<span>BG</span>
-					<input type="color" id="bg-color" value="#07080b">
-				</label>
-				<button class="btn active" id="toggle-grid">Grid</button>
-				<button class="btn" id="toggle-guides">Guides</button>
-				<button class="btn active" id="toggle-ar" title="Toggle aspect ratio overlay (frame + letterbox)">AR</button>
-			</div>
+		<!-- Display controls moved to the viewport toolbar. Guides/AR are gone from the
+		     visible UI but the hidden elements remain so existing handlers (which query
+		     them by ID and toggle their state) keep working without a rewrite. -->
+		<div style="display:none">
+			<button id="toggle-guides"></button>
+			<button class="active" id="toggle-ar"></button>
 		</div>
 
 		<div class="section">
@@ -640,11 +727,31 @@
 	</div>
 
 	<div id="viewport-area">
+		<div id="viewport-toolbar">
+			<div class="vt-group">
+				<button class="vt-btn vt-icon-btn" id="mode-anchor" title="Pivot (Q) — move the origin without moving the object. Future rotate/scale happen around the new pivot.">
+					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="3.6"/><line x1="1.5" y1="8" x2="14.5" y2="8"/><line x1="8" y1="1.5" x2="8" y2="14.5"/></svg>
+				</button>
+				<button class="vt-btn" id="mode-translate" data-mode="translate">Move<span class="vt-key">W</span></button>
+				<button class="vt-btn" id="mode-rotate" data-mode="rotate">Rotate<span class="vt-key">E</span></button>
+				<button class="vt-btn" id="mode-scale" data-mode="scale">Scale<span class="vt-key">R</span></button>
+			</div>
+			<div class="vt-sep"></div>
+			<button class="vt-btn vt-icon-btn" id="toggle-snap" title="Snap — quantize gizmo drags to fixed increments (0.25 units / 15° / 0.25 scale)">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 15 4 4"/><path d="M2.352 10.648a1.205 1.205 0 0 0 0 1.704l2.296 2.296a1.205 1.205 0 0 0 1.704 0l6.029-6.029a1 1 0 1 1 3 3l-6.029 6.029a1.205 1.205 0 0 0 0 1.704l2.296 2.296a1.205 1.205 0 0 0 1.704 0l6.365-6.367A1 1 0 0 0 8.716 4.282z"/><path d="m5 8 4 4"/></svg>
+			</button>
+			<button class="vt-btn vt-icon-btn active" id="toggle-grid" title="Show/hide ground grid">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M3 12h18"/><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+			</button>
+			<label class="vt-bg-swatch" title="Background color">
+				<input type="color" id="bg-color" value="#07080b">
+			</label>
+		</div>
 		<div id="canvas-wrap">
 			<canvas id="renderCanvas"></canvas>
 			<div id="aspect-frame" class="no-guides"><span class="v1"></span><span class="v2"></span></div>
 			<div id="status">idle · 0 objects</div>
-			<div id="info-block" style="position:absolute;top:6px;left:6px;background:rgba(20,20,24,0.85);border-radius:6px;z-index:11;display:flex;flex-direction:column;align-items:flex-start">
+			<div id="info-block" style="display:none;position:absolute;top:6px;left:6px;background:rgba(20,20,24,0.85);border-radius:6px;z-index:11;flex-direction:column;align-items:flex-start">
 				<button id="info-btn" title="Scene info" style="width:24px;height:24px;border:none;background:transparent;color:rgba(255,255,255,0.55);font:11px serif;font-style:italic;font-weight:600;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center">i</button>
 				<div id="debug-hud" style="color:rgba(255,255,255,0.45);font:10px ui-monospace,monospace;padding:0 12px 10px 12px;line-height:1.6;white-space:pre;display:none;min-width:200px"></div>
 			</div>
@@ -759,6 +866,16 @@ camera.position.set(2.2, 1.6, 2.8);
 const orbit = new OrbitControls(camera, canvas);
 orbit.enableDamping = true;
 orbit.target.set(0, 0, 0);
+// Middle-click pans (Maya/Blender muscle memory); left-click still orbits.
+// Right-click stays unmapped so the existing alt-camera / fly-mode handlers can own it.
+orbit.mouseButtons = {
+	LEFT: THREE.MOUSE.ROTATE,
+	MIDDLE: THREE.MOUSE.PAN,
+	RIGHT: null,
+};
+// Screen-space pan — drag right, scene goes right — feels more direct than
+// panning across the orbit target plane.
+orbit.screenSpacePanning = true;
 
 const transform = new TransformControls(camera, renderer.domElement);
 transform.addEventListener("dragging-changed", (e) => {
@@ -767,6 +884,25 @@ transform.addEventListener("dragging-changed", (e) => {
 });
 const transformHelper = transform.getHelper ? transform.getHelper() : transform;
 scene.add(transformHelper);
+
+// Gizmo-increment snap: quantizes translate/rotate/scale drags to fixed steps so
+// blockout objects land on tidy positions/angles/sizes. Toggle via the viewport bar.
+let snapEnabled = false;
+const TRANSLATE_SNAP_STEP = 0.25;
+const ROTATE_SNAP_STEP_DEG = 15;
+const SCALE_SNAP_STEP = 0.25;
+function applyTransformSnap() {
+	transform.setTranslationSnap(snapEnabled ? TRANSLATE_SNAP_STEP : null);
+	transform.setRotationSnap(snapEnabled ? THREE.MathUtils.degToRad(ROTATE_SNAP_STEP_DEG) : null);
+	transform.setScaleSnap(snapEnabled ? SCALE_SNAP_STEP : null);
+}
+const snapToggle = document.getElementById("toggle-snap");
+snapToggle?.addEventListener("click", () => {
+	snapEnabled = !snapEnabled;
+	snapToggle.classList.toggle("active", snapEnabled);
+	applyTransformSnap();
+});
+applyTransformSnap();
 
 let grid = new THREE.GridHelper(20, 20, 0x888888, 0x888888);
 grid.material.transparent = true;
@@ -1437,10 +1573,59 @@ const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 let pointerDownX = 0, pointerDownY = 0;
 canvas.addEventListener("pointerdown", e => { pointerDownX = e.clientX; pointerDownY = e.clientY; });
+
+// Hover the small path dots: cursor turns into a pointer + a bright marker snaps onto
+// the dot, so you know it's clickable. Skipped during gizmo drags / Alt-camera so we
+// don't fight the active interaction.
+canvas.addEventListener("pointermove", e => {
+	if (transform.dragging || altCamHeld || altDragging) {
+		if (hoverDot.visible) hoverDot.visible = false;
+		return;
+	}
+	const hit = findPathDotHit(e.clientX, e.clientY);
+	if (hit) {
+		hoverDot.position.copy(hit.key.pos);
+		// Color the hover marker to match the track: cyan for object keys,
+		// green if we ever start picking against the camera path.
+		hoverDot.material.color.setHex(hit.obj === null ? 0x38d977 : 0x4dc4ff);
+		hoverDot.visible = true;
+		canvas.style.cursor = "pointer";
+	} else {
+		if (hoverDot.visible) hoverDot.visible = false;
+		if (canvas.style.cursor === "pointer") canvas.style.cursor = "";
+	}
+});
+canvas.addEventListener("pointerleave", () => {
+	hoverDot.visible = false;
+	if (canvas.style.cursor === "pointer") canvas.style.cursor = "";
+});
+
 canvas.addEventListener("pointerup", e => {
-	if (transform.dragging || transform.axis) return;
+	// Bail only on an actual gizmo drag — `transform.axis` being non-null just means the
+	// gizmo's hover-picker is under the cursor. Path-dot / mesh picks under the gizmo
+	// should still register; we let the raycast decide.
+	if (transform.dragging) return;
 	if (e.altKey || altCamHeld || altDragging) return;
 	if (Math.abs(e.clientX - pointerDownX) > 4 || Math.abs(e.clientY - pointerDownY) > 4) return;
+	// Path-dot pick: clicking a square dot on the motion path jumps the playhead to that
+	// key and selects it on the timeline. Runs before the regular raycast so a dot click
+	// wins over the geometry underneath.
+	const dot = findPathDotHit(e.clientX, e.clientY);
+	if (dot) {
+		stopPreview();
+		selectedKeys.clear();
+		selectedKeys.add(dot.key);
+		renderKeyframeMarkers();
+		setPlayhead(dot.key.t);
+		// Snap the object to this key's stored transform, regardless of what the
+		// sampler would produce at this playhead. Necessary because through-keys
+		// aren't time anchors — setPlayhead alone would leave the object at the
+		// interpolated position between the surrounding timed keys, not on the dot.
+		// For regular keys this is a no-op (sampler already landed on k.pos).
+		applyObjectState(dot.obj, dot.key);
+		select(dot.obj);
+		return;
+	}
 	const rect = canvas.getBoundingClientRect();
 	ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
 	ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1462,6 +1647,9 @@ canvas.addEventListener("pointerup", e => {
 			if (d < sphereHitDist) { sphereHitDist = d; sphereHit = o; }
 		}
 	}
+	// Gizmo absorbed the click but nothing real was under it — keep the current selection
+	// instead of deselecting to empty space.
+	if (!meshHit && !sphereHit && transform.axis) return;
 	if (meshHit && (!sphereHit || meshHit.distance < sphereHitDist)) {
 		let root = meshHit.object;
 		while (root && !objects.includes(root)) root = root.parent;
@@ -1474,7 +1662,12 @@ canvas.addEventListener("pointerup", e => {
 });
 
 document.querySelectorAll(".prim-btn").forEach(b => {
-	b.addEventListener("click", () => addPrimitive(b.dataset.prim));
+	b.addEventListener("click", () => {
+		const kind = b.dataset.prim;
+		if (kind === "custom") { importInput.click(); return; }
+		if (kind === "particles") return; // disabled placeholder — wire up when the feature lands
+		addPrimitive(kind);
+	});
 });
 
 // Alt-held camera modifier: layers cinematic moves on top of the default
@@ -2084,13 +2277,42 @@ window.addEventListener("keydown", (e) => {
 	if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
 		e.preventDefault();
 		stopPreview();
-		const fps = parseInt(document.getElementById("fps").value, 10) || 30;
-		const dur = currentDuration();
-		// One-frame step in normalized timeline units, scaled up by Shift for a coarser scrub.
-		const step = (1 / fps / dur) * (e.shiftKey ? 10 : 1);
 		const gap = trimGap();
 		const dir = e.key === "ArrowLeft" ? -1 : 1;
-		const t = Math.max(trimStart + gap, Math.min(trimEnd - gap, playhead + dir * step));
+		let t;
+		if (e.shiftKey) {
+			// Shift jumps to the next/prev keyframe on any track (camera + every object).
+			// Dedups times within a tiny epsilon so co-located camera/object diamonds count
+			// as a single stop.
+			const EPS = 1e-4;
+			const times = new Set();
+			for (const k of keyframes) times.add(Math.round(k.t * 1e6) / 1e6);
+			for (const obj of objects) {
+				if (Array.isArray(obj.userData?.keyframes)) {
+					for (const k of obj.userData.keyframes) times.add(Math.round(k.t * 1e6) / 1e6);
+				}
+			}
+			const sorted = Array.from(times).sort((a, b) => a - b);
+			let target = null;
+			if (dir > 0) {
+				for (const x of sorted) { if (x > playhead + EPS) { target = x; break; } }
+			} else {
+				for (let i = sorted.length - 1; i >= 0; i--) {
+					if (sorted[i] < playhead - EPS) { target = sorted[i]; break; }
+				}
+			}
+			// No key to jump to in that direction — clamp to the trim edge so the user gets
+			// visual feedback they're at the end of the line.
+			t = (target !== null)
+				? target
+				: (dir > 0 ? trimEnd - gap : trimStart + gap);
+		} else {
+			const fps = parseInt(document.getElementById("fps").value, 10) || 30;
+			const dur = currentDuration();
+			const step = 1 / fps / dur;
+			t = playhead + dir * step;
+		}
+		t = Math.max(trimStart + gap, Math.min(trimEnd - gap, t));
 		setPlayhead(t);
 		const s = sampleCameraAt(t);
 		if (s) applyCameraState(s);
@@ -2102,6 +2324,13 @@ window.addEventListener("keydown", (e) => {
 	if (e.key === "w") transform.setMode("translate");
 	else if (e.key === "e") transform.setMode("rotate");
 	else if (e.key === "r") transform.setMode("scale");
+	else if (e.key === "s" && !e.ctrlKey && !e.metaKey) {
+		// Mirrors the + button in the transport: key the selected object's
+		// pos/rot/scale, or the camera if nothing's selected. Modifier check
+		// prevents overlap with Ctrl+S (save project).
+		if (selected) addObjectKeyframe(selected);
+		else addKeyframe();
+	}
 	else if (e.key === "f" || e.key === "F") frameScene();
 	else if (e.key === "Home") { camera.position.set(2.2, 1.6, 2.8); orbit.target.set(0, 0, 0); camera.up.set(0, 1, 0); camera.updateProjectionMatrix(); }
 	else if (e.key === "Delete" || e.key === "Backspace") {
@@ -2155,7 +2384,6 @@ function pasteFromClipboard() {
 	const mesh = addPrimitive(objectClipboard.kind);
 	if (!mesh) return;
 	mesh.position.fromArray(objectClipboard.position);
-	mesh.position.x += 0.5; mesh.position.z += 0.5; // nudge so paste doesn't z-fight the source
 	mesh.rotation.set(objectClipboard.rotation[0], objectClipboard.rotation[1], objectClipboard.rotation[2]);
 	mesh.scale.fromArray(objectClipboard.scale);
 	mesh.material.color.setHex(objectClipboard.color);
@@ -2226,9 +2454,7 @@ window.addEventListener("drop", async e => {
 	for (const f of files) await loadFile(f);
 });
 
-const importBtn = document.getElementById("import-btn");
 const importInput = document.getElementById("import-file");
-importBtn.addEventListener("click", () => importInput.click());
 importInput.addEventListener("change", async e => {
 	const files = Array.from(e.target.files || []);
 	for (const f of files) await loadFile(f);
@@ -2304,6 +2530,9 @@ let keyframes = [];
 let playhead = 0;
 // Set so Shift-click can multi-select keyframes (apply ease to a batch).
 const selectedKeys = new Set();
+// WeakSet of keys just created — used to fire a one-shot flash animation on their
+// diamonds after the next render. Cleared per-key inside renderTrackOnTimeline.
+const justAddedKeys = new WeakSet();
 let isPlayingPreview = false;
 let trimStart = 0;
 let trimEnd = 1;
@@ -2395,6 +2624,53 @@ const easings = {
 	easeInOut: t => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t,
 };
 
+// Catmull-Rom (tension=0.5) on a single component — smooth curve through p1 and p2
+// with tangents determined by neighbors p0 and p3.
+function _crComponent(t, p0, p1, p2, p3) {
+	const t2 = t * t, t3 = t2 * t;
+	return 0.5 * ((2 * p1) + (-p0 + p2) * t
+		+ (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
+		+ (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
+}
+// Sample a smooth position along the keys' Catmull-Rom curve. Endpoint segments
+// reflect the neighbor so the curve doesn't shoot off at the boundaries.
+function sampleKeyPosCurved(ks, segIdx, local) {
+	const a = ks[segIdx], b = ks[segIdx + 1];
+	if (ks.length < 3) {
+		return new THREE.Vector3().lerpVectors(a.pos, b.pos, local);
+	}
+	const p0 = (segIdx > 0 ? ks[segIdx - 1].pos : a.pos);
+	const p1 = a.pos;
+	const p2 = b.pos;
+	const p3 = (segIdx + 2 < ks.length ? ks[segIdx + 2].pos : b.pos);
+	return new THREE.Vector3(
+		_crComponent(local, p0.x, p1.x, p2.x, p3.x),
+		_crComponent(local, p0.y, p1.y, p2.y, p3.y),
+		_crComponent(local, p0.z, p1.z, p2.z, p3.z),
+	);
+}
+// Sample a Catmull-Rom curve through an arbitrary set of points at u in [0,1].
+// Used when through-keys add positional controls between two timed keys — the
+// resulting path visits every supplied point in order.
+function sampleMultiCatmullRom(points, u) {
+	const N = points.length - 1;
+	if (N <= 0) return points[0].clone();
+	if (u <= 0) return points[0].clone();
+	if (u >= 1) return points[N].clone();
+	const totalU = u * N;
+	const seg = Math.min(Math.floor(totalU), N - 1);
+	const local = totalU - seg;
+	const p0 = points[seg - 1] || points[seg];
+	const p1 = points[seg];
+	const p2 = points[seg + 1];
+	const p3 = points[seg + 2] || points[seg + 1];
+	return new THREE.Vector3(
+		_crComponent(local, p0.x, p1.x, p2.x, p3.x),
+		_crComponent(local, p0.y, p1.y, p2.y, p3.y),
+		_crComponent(local, p0.z, p1.z, p2.z, p3.z),
+	);
+}
+
 function captureCameraState() {
 	return {
 		pos: camera.position.clone(),
@@ -2402,6 +2678,178 @@ function captureCameraState() {
 		up: camera.up.clone(),
 		fov: camera.fov,
 	};
+}
+
+function captureObjectState(obj) {
+	return {
+		pos: obj.position.clone(),
+		quat: obj.quaternion.clone(),
+		scale: obj.scale.clone(),
+	};
+}
+
+function applyObjectState(obj, state) {
+	obj.position.copy(state.pos);
+	obj.quaternion.copy(state.quat);
+	obj.scale.copy(state.scale);
+}
+
+function sampleObjectAt(obj, t) {
+	const ks = obj.userData?.keyframes;
+	if (!ks || ks.length === 0) return null;
+	// "through" keys are positional waypoints only — they bend the path but don't anchor
+	// timing. Find the segment using timed keys only; collect all keys (including through)
+	// between them as Catmull-Rom controls.
+	const timed = ks.filter(k => k.ease !== "through");
+	if (timed.length === 0) return ks[0];
+	if (timed.length === 1 || t <= timed[0].t) return timed[0];
+	if (t >= timed[timed.length - 1].t) return timed[timed.length - 1];
+	for (let i = 0; i < timed.length - 1; i++) {
+		const a = timed[i], c = timed[i + 1];
+		if (t >= a.t && t <= c.t) {
+			const local = (t - a.t) / (c.t - a.t);
+			const eased = (easings[c.ease] || easings.easeInOut)(local);
+			const startIdx = ks.indexOf(a);
+			const endIdx = ks.indexOf(c);
+			const segPoints = ks.slice(startIdx, endIdx + 1).map(k => k.pos);
+			// 2 points = no through keys — use the global-neighbor-aware curved sampler so
+			// motion outside the segment still influences the tangent at a/c.
+			const pos = (segPoints.length === 2)
+				? sampleKeyPosCurved(ks, startIdx, eased)
+				: sampleMultiCatmullRom(segPoints, eased);
+			return {
+				pos,
+				quat: new THREE.Quaternion().slerpQuaternions(a.quat, c.quat, eased),
+				scale: new THREE.Vector3().lerpVectors(a.scale, c.scale, eased),
+			};
+		}
+	}
+	return timed[timed.length - 1];
+}
+
+function applyObjectsAt(t) {
+	for (const obj of objects) {
+		const ks = obj.userData?.keyframes;
+		if (!ks || ks.length === 0) continue;
+		const s = sampleObjectAt(obj, t);
+		if (s) applyObjectState(obj, s);
+	}
+}
+
+// Faint in-scene path overlay so the user can see where each animated object travels.
+// Line + small square dots per object; drawn through geometry (depthTest off) so the
+// motion is visible even when obscured. Hidden by setRecordingMode so it doesn't get
+// baked into the recorded clip.
+const animPathsGroup = new THREE.Group();
+animPathsGroup.name = "_animPaths";
+scene.add(animPathsGroup);
+
+function getObjPathColor(obj) {
+	if (obj.material?.color) return obj.material.color.getHex();
+	// Imports / groups have no top-level material — sniff the first child mesh for a color.
+	let hex = 0xffffff;
+	obj.traverse?.(c => {
+		if (hex === 0xffffff && c.isMesh && c.material?.color) hex = c.material.color.getHex();
+	});
+	return hex;
+}
+
+function refreshAnimPaths() {
+	while (animPathsGroup.children.length) {
+		const c = animPathsGroup.children[0];
+		animPathsGroup.remove(c);
+		c.geometry?.dispose?.();
+		c.material?.dispose?.();
+	}
+	const SEG = 24; // samples per segment — enough to feel smooth without flooding the GPU
+	for (const obj of objects) {
+		const ks = obj.userData?.keyframes;
+		if (!Array.isArray(ks) || ks.length === 0) continue;
+		const colorHex = getObjPathColor(obj);
+
+		// Path line — Catmull-Rom curve through key positions so 3+ keys form a smooth
+		// arc rather than connected straight lines. Ease is intentionally NOT applied to
+		// the line samples: the line shows where the object goes in space; ease only
+		// affects when (timing along the curve), which is shown by playback, not geometry.
+		// Each "timed segment" (between non-through keys) renders as one curve passing
+		// through any through-keys that sit between them as positional controls.
+		const timed = ks.filter(k => k.ease !== "through");
+		if (timed.length >= 2) {
+			const pts = [];
+			for (let i = 0; i < timed.length - 1; i++) {
+				const startIdx = ks.indexOf(timed[i]);
+				const endIdx = ks.indexOf(timed[i + 1]);
+				const segPoints = ks.slice(startIdx, endIdx + 1).map(k => k.pos);
+				if (segPoints.length === 2) {
+					for (let s = 0; s <= SEG; s++) {
+						pts.push(sampleKeyPosCurved(ks, startIdx, s / SEG));
+					}
+				} else {
+					const SAMPLES = SEG * (segPoints.length - 1);
+					for (let s = 0; s <= SAMPLES; s++) {
+						pts.push(sampleMultiCatmullRom(segPoints, s / SAMPLES));
+					}
+				}
+			}
+			const lg = new THREE.BufferGeometry().setFromPoints(pts);
+			const lm = new THREE.LineBasicMaterial({
+				color: colorHex, transparent: true, opacity: 0.35, depthTest: false,
+			});
+			const line = new THREE.Line(lg, lm);
+			line.renderOrder = 999;
+			animPathsGroup.add(line);
+		}
+
+		// Square dots at each keyframe position — 2D screen-space size (no perspective shrink).
+		const pg = new THREE.BufferGeometry().setFromPoints(ks.map(k => k.pos));
+		const pm = new THREE.PointsMaterial({
+			color: colorHex, size: 5, sizeAttenuation: false,
+			transparent: true, opacity: 0.8, depthTest: false,
+		});
+		const points = new THREE.Points(pg, pm);
+		points.renderOrder = 1000;
+		animPathsGroup.add(points);
+	}
+}
+
+// Hover highlight overlay — a single bright dot that snaps onto the path keyframe the
+// mouse is currently over. Sits one renderOrder above the path's own dots so it always
+// wins the depth test (which is already disabled for both).
+const hoverDot = new THREE.Points(
+	new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]),
+	new THREE.PointsMaterial({
+		color: 0xffffff, size: 10, sizeAttenuation: false,
+		transparent: true, opacity: 1.0, depthTest: false,
+	}),
+);
+hoverDot.visible = false;
+hoverDot.renderOrder = 1002;
+scene.add(hoverDot);
+
+// Screen-space pick across every animated object's key positions. Returns the closest
+// {obj, key} within HIT_PX pixels of the cursor, or null. Called before the regular
+// object raycast so a path-dot click wins over the underlying geometry.
+function findPathDotHit(clientX, clientY) {
+	const HIT_PX = 9;
+	const HIT2 = HIT_PX * HIT_PX;
+	const rect = canvas.getBoundingClientRect();
+	let best = null;
+	let bestDist = HIT2;
+	const p = new THREE.Vector3();
+	for (const obj of objects) {
+		const ks = obj.userData?.keyframes;
+		if (!Array.isArray(ks) || ks.length === 0) continue;
+		for (const k of ks) {
+			p.copy(k.pos).project(camera);
+			if (p.z < -1 || p.z > 1) continue; // behind / past clip planes
+			const sx = rect.left + (p.x + 1) * 0.5 * rect.width;
+			const sy = rect.top + (1 - p.y) * 0.5 * rect.height;
+			const dx = clientX - sx, dy = clientY - sy;
+			const d2 = dx * dx + dy * dy;
+			if (d2 < bestDist) { bestDist = d2; best = { obj, key: k }; }
+		}
+	}
+	return best;
 }
 
 function applyCameraState(state) {
@@ -2416,6 +2864,21 @@ function currentDuration() {
 	return parseFloat(document.getElementById("duration").value);
 }
 
+// Toggles the "playhead-active" CSS class on any timeline diamond whose t matches the
+// current playhead. EPS is tight (sub-frame) so the active state only lights up when
+// the playhead is genuinely parked on a key — via snap, click, key-jump, or drag.
+function refreshPlayheadActiveOnKeys() {
+	const EPS = 0.001;
+	const all = document.querySelectorAll(".tl-key, .pv-key");
+	for (const el of all) {
+		const leftStr = el.style.left || "";
+		if (!leftStr.endsWith("%")) continue;
+		const elT = parseFloat(leftStr) / 100;
+		if (Math.abs(elT - playhead) < EPS) el.classList.add("playhead-active");
+		else el.classList.remove("playhead-active");
+	}
+}
+
 function setPlayhead(t) {
 	playhead = Math.max(0, Math.min(1, t));
 	tlPlayhead.style.left = `${playhead * 100}%`;
@@ -2423,14 +2886,23 @@ function setPlayhead(t) {
 	if (pvPh) pvPh.style.left = `${playhead * 100}%`;
 	const dur = currentDuration();
 	tlTime.textContent = `${(playhead * dur).toFixed(2)}s / ${dur.toFixed(2)}s`;
+	// Animated objects (with their own keyframes) follow the playhead automatically.
+	// No-op for objects without keys, so this is free for static scenes.
+	applyObjectsAt(playhead);
+	refreshPlayheadActiveOnKeys();
 }
 
 function sampleCameraAt(t) {
-	if (keyframes.length === 0) return null;
-	if (keyframes.length === 1 || t <= keyframes[0].t) return keyframes[0];
-	if (t >= keyframes[keyframes.length - 1].t) return keyframes[keyframes.length - 1];
-	for (let i = 0; i < keyframes.length - 1; i++) {
-		const a = keyframes[i], b = keyframes[i + 1];
+	// "through" keys are positional/muted — they don't anchor the camera interpolation.
+	// (For the camera, which stays as a linear lerp between neighbors, this effectively
+	// disables the key without deleting it. The path visualization does use them as
+	// Catmull-Rom controls in refreshAnimPaths.)
+	const keyframes_ = keyframes.filter(k => k.ease !== "through");
+	if (keyframes_.length === 0) return null;
+	if (keyframes_.length === 1 || t <= keyframes_[0].t) return keyframes_[0];
+	if (t >= keyframes_[keyframes_.length - 1].t) return keyframes_[keyframes_.length - 1];
+	for (let i = 0; i < keyframes_.length - 1; i++) {
+		const a = keyframes_[i], b = keyframes_[i + 1];
 		if (t >= a.t && t <= b.t) {
 			const local = (t - a.t) / (b.t - a.t);
 			// b.ease is the INCOMING ease for the segment landing on b (matches
@@ -2448,7 +2920,7 @@ function sampleCameraAt(t) {
 			};
 		}
 	}
-	return keyframes[keyframes.length - 1];
+	return keyframes_[keyframes_.length - 1];
 }
 
 const EASE_OPTIONS = [
@@ -2456,6 +2928,10 @@ const EASE_OPTIONS = [
 	{ id: "easeIn",    label: "ease in" },
 	{ id: "easeOut",   label: "ease out" },
 	{ id: "easeInOut", label: "ease in/out" },
+	// "through" = positional waypoint only. For objects (feature #5 onward), bends the
+	// Catmull-Rom path through this point without adding a timing anchor. For the camera
+	// today, effectively mutes the key from the interpolation.
+	{ id: "through",   label: "through (free)" },
 ];
 function showEaseMenu(k, anchor) {
 	// Tear down any existing menu so right-clicking a new key replaces the old one.
@@ -2528,7 +3004,15 @@ function showEaseMenu(k, anchor) {
 		try { snapshotForUndo(); } catch {}
 		const targetSet = new Set(targets);
 		keyframes = keyframes.filter(x => !targetSet.has(x));
+		for (const obj of objects) {
+			if (Array.isArray(obj.userData?.keyframes)) {
+				obj.userData.keyframes = obj.userData.keyframes.filter(x => !targetSet.has(x));
+			}
+		}
 		for (const t of targets) selectedKeys.delete(t);
+		promoteBoundaryThrough(keyframes);
+		for (const obj of objects) promoteBoundaryThrough(obj.userData?.keyframes);
+		applyObjectsAt(playhead);
 		renderKeyframeMarkers();
 		saveSceneDebounced?.();
 		cleanup();
@@ -2561,114 +3045,55 @@ function showEaseMenu(k, anchor) {
 	}, 0);
 }
 
-function renderKeyframeMarkers() {
-	tlKeys.innerHTML = "";
-	// Mirror keyframes into the preview transport's mini timeline + wire drag/select.
-	const pvKeysEl = document.getElementById("pv-keys");
-	const pvScrubEl = document.getElementById("pv-scrub-wrap");
-	if (pvKeysEl && pvScrubEl) {
-		pvKeysEl.innerHTML = "";
-		for (const k of keyframes) {
-			// Grey vertical line inside the bar marking the keyframe position (visual only).
-			const line = document.createElement("div");
-			line.className = "pv-key-line";
-			line.style.left = `${k.t * 100}%`;
-			pvKeysEl.appendChild(line);
-
-			// Green diamond above the bar — the interactive target (drag + right-click).
-			const pm = document.createElement("div");
-			pm.className = "pv-key" + (selectedKeys.has(k) ? " selected" : "");
-			pm.style.left = `${k.t * 100}%`;
-			pvKeysEl.appendChild(pm);
-
-			let dragStartX, dragStartT, didDrag = false;
-			pm.addEventListener("pointerdown", e => {
-				if (e.button !== 0) { e.stopPropagation(); return; } // right-click falls through to contextmenu
-				e.stopPropagation();
-				// Snapshot pre-drag so Ctrl+Z restores the keyframe's old time. Click-without-
-				// drag dedupes against the unchanged scene state.
-				try { snapshotForUndo(); } catch {}
-				stopPreview();
-				// Shift-click toggles in/out of the selection set; plain click replaces unless
-				// the key is already part of an existing multi-selection (so drag preserves it).
-				if (e.shiftKey) {
-					if (selectedKeys.has(k)) selectedKeys.delete(k);
-					else selectedKeys.add(k);
-				} else if (!selectedKeys.has(k)) {
-					selectedKeys.clear();
-					selectedKeys.add(k);
-				}
-				for (const el of pvKeysEl.querySelectorAll(".pv-key")) el.classList.remove("selected");
-				if (selectedKeys.has(k)) pm.classList.add("selected");
-				dragStartX = e.clientX;
-				dragStartT = k.t;
-				didDrag = false;
-				pm.classList.add("dragging");
-				pm.setPointerCapture(e.pointerId);
-			});
-			pm.addEventListener("pointermove", e => {
-				if (!pm.hasPointerCapture(e.pointerId)) return;
-				const rect = pvScrubEl.getBoundingClientRect();
-				const dx = (e.clientX - dragStartX) / rect.width;
-				if (Math.abs(dx) > 0.005) didDrag = true;
-				const gap = trimGap();
-				k.t = Math.max(trimStart + gap, Math.min(trimEnd - gap, dragStartT + dx));
-				pm.style.left = `${k.t * 100}%`;
-				line.style.left = `${k.t * 100}%`;
-				// Keep the playhead glued to the keyframe while it's being dragged — feels
-				// like you're scrubbing through time by moving the keyframe itself.
-				setPlayhead(k.t);
-				applyCameraState(k);
-			});
-			pm.addEventListener("pointerup", e => {
-				if (!pm.hasPointerCapture(e.pointerId)) return;
-				pm.releasePointerCapture(e.pointerId);
-				pm.classList.remove("dragging");
-				if (didDrag) {
-					keyframes.sort((a, b) => a.t - b.t);
-					renderKeyframeMarkers();
-					saveSceneDebounced?.();
-				} else {
-					// Click without drag = select + jump playhead to this keyframe.
-					stopPreview();
-					setPlayhead(k.t);
-					applyCameraState(k);
-				}
-			});
-			// Right-click ease menu is an editor-only feature; preview stays focused on playback.
-		}
-	}
-	for (const k of keyframes) {
-		// Grey vertical line inside the bar marking the keyframe position (visual only).
+// Internal renderer for one track of diamonds (camera OR per-object) into one timeline
+// (tl OR pv). Wiring (selection, drag-to-retime, right-click ease, click-jump) is
+// identical across both; only the apply / sort hooks differ per track. The base class
+// is "tl-key" or "pv-key" so the existing CSS drives the look — object tracks add a
+// trailing " obj" modifier for the cyan variant.
+function renderTrackOnTimeline({ keys, parent, container, lineCls, dotCls, applyState, sortKeys, enableEase }) {
+	const baseDot = dotCls.split(" ")[0]; // "tl-key" or "pv-key" — used for clearing "selected"
+	for (const k of keys) {
 		const line = document.createElement("div");
-		line.className = "tl-key-line";
+		line.className = lineCls;
 		line.style.left = `${k.t * 100}%`;
-		tlKeys.appendChild(line);
+		container.appendChild(line);
 
-		// Green diamond above the bar — interactive target (drag + right-click).
 		const m = document.createElement("div");
-		m.className = "tl-key" + (selectedKeys.has(k) ? " selected" : "");
+		let cls = dotCls;
+		if (selectedKeys.has(k)) cls += " selected";
+		if (justAddedKeys.has(k)) cls += " flash-new";
+		if (k.ease === "through") cls += " through";
+		m.className = cls;
 		m.style.left = `${k.t * 100}%`;
-		m.title = `keyframe @ ${(k.t * 100).toFixed(0)}% — click to select · Shift+click to multi-select · drag to retime · right-click for ease · Delete to remove`;
+		if (enableEase) {
+			m.title = `keyframe @ ${(k.t * 100).toFixed(0)}% — click to select · Shift+click to multi-select · drag to retime · right-click for ease · Delete to remove`;
+		}
+		container.appendChild(m);
 
 		let dragStartX, dragStartT, didDrag = false;
 		m.addEventListener("pointerdown", e => {
-			if (e.button !== 0) { e.stopPropagation(); return; } // let right-click reach contextmenu cleanly
+			if (e.button !== 0) { e.stopPropagation(); return; }
 			e.stopPropagation();
-			// Snapshot pre-drag so Ctrl+Z restores the keyframe's old time. Click-without-
-			// drag dedupes against the unchanged scene state.
 			try { snapshotForUndo(); } catch {}
-			// Shift-click toggles in/out of the selection set; plain click replaces unless
-			// the key is already part of an existing multi-selection (so drag preserves it).
+			stopPreview();
 			if (e.shiftKey) {
-				if (selectedKeys.has(k)) selectedKeys.delete(k);
-				else selectedKeys.add(k);
+				// Toggle this key's membership; leave every other key's selection alone
+				// so bulk selection accumulates across shift-clicks.
+				if (selectedKeys.has(k)) {
+					selectedKeys.delete(k);
+					m.classList.remove("selected");
+				} else {
+					selectedKeys.add(k);
+					m.classList.add("selected");
+				}
 			} else if (!selectedKeys.has(k)) {
+				// Plain click on a non-selected key replaces the selection with just this key.
 				selectedKeys.clear();
 				selectedKeys.add(k);
+				for (const el of container.querySelectorAll("." + baseDot)) el.classList.remove("selected");
+				m.classList.add("selected");
 			}
-			for (const el of tlKeys.querySelectorAll(".tl-key")) el.classList.remove("selected");
-			if (selectedKeys.has(k)) m.classList.add("selected");
+			// Plain click on an already-selected key preserves the multi-selection for drag.
 			dragStartX = e.clientX;
 			dragStartT = k.t;
 			didDrag = false;
@@ -2677,41 +3102,95 @@ function renderKeyframeMarkers() {
 		});
 		m.addEventListener("pointermove", e => {
 			if (!m.hasPointerCapture(e.pointerId)) return;
-			const rect = tlScrub.getBoundingClientRect();
+			const rect = parent.getBoundingClientRect();
 			const dx = (e.clientX - dragStartX) / rect.width;
 			if (Math.abs(dx) > 0.005) didDrag = true;
-			// Clamp into the trim window with the same visual gap as the resting playhead.
 			const gap = trimGap();
 			k.t = Math.max(trimStart + gap, Math.min(trimEnd - gap, dragStartT + dx));
 			m.style.left = `${k.t * 100}%`;
 			line.style.left = `${k.t * 100}%`;
-			// Keep the playhead glued to the keyframe while dragging — scrubbing-by-keyframe.
 			setPlayhead(k.t);
-			applyCameraState(k);
+			applyState(k);
 		});
 		m.addEventListener("pointerup", e => {
 			if (!m.hasPointerCapture(e.pointerId)) return;
 			m.releasePointerCapture(e.pointerId);
 			m.classList.remove("dragging");
 			if (didDrag) {
-				keyframes.sort((a, b) => a.t - b.t);
+				sortKeys();
 				renderKeyframeMarkers();
 				saveSceneDebounced?.();
 			} else {
-				// Click without drag = select + jump playhead to the keyframe.
 				stopPreview();
 				setPlayhead(k.t);
-				applyCameraState(k);
+				applyState(k);
 			}
 		});
-		m.addEventListener("contextmenu", e => {
-			e.preventDefault();
-			e.stopPropagation();
-			showEaseMenu(k, m);
-		});
-
-		tlKeys.appendChild(m);
+		if (enableEase) {
+			m.addEventListener("contextmenu", e => {
+				e.preventDefault();
+				e.stopPropagation();
+				showEaseMenu(k, m);
+			});
+		}
+		// Consume the flash flag once both timelines have had a chance to render it.
+		// The tl render runs after pv, so clearing here (only on the tl pass) is safe.
+		if (enableEase && justAddedKeys.has(k)) justAddedKeys.delete(k);
 	}
+}
+
+function renderKeyframeMarkers() {
+	tlKeys.innerHTML = "";
+	const pvKeysEl = document.getElementById("pv-keys");
+	const pvScrubEl = document.getElementById("pv-scrub-wrap");
+	const havePv = !!(pvKeysEl && pvScrubEl);
+	if (havePv) pvKeysEl.innerHTML = "";
+
+	// Camera track on both timelines. Preview transport skips right-click ease.
+	if (havePv) {
+		renderTrackOnTimeline({
+			keys: keyframes, parent: pvScrubEl, container: pvKeysEl,
+			lineCls: "pv-key-line", dotCls: "pv-key",
+			applyState: (k) => applyCameraState(k),
+			sortKeys: () => keyframes.sort((a, b) => a.t - b.t),
+			enableEase: false,
+		});
+	}
+	renderTrackOnTimeline({
+		keys: keyframes, parent: tlScrub, container: tlKeys,
+		lineCls: "tl-key-line", dotCls: "tl-key",
+		applyState: (k) => applyCameraState(k),
+		sortKeys: () => keyframes.sort((a, b) => a.t - b.t),
+		enableEase: true,
+	});
+
+	// Per-object tracks — cyan diamonds layered just below the camera row.
+	for (const obj of objects) {
+		const ks = obj.userData?.keyframes;
+		if (!Array.isArray(ks) || ks.length === 0) continue;
+		if (havePv) {
+			renderTrackOnTimeline({
+				keys: ks, parent: pvScrubEl, container: pvKeysEl,
+				lineCls: "pv-key-line", dotCls: "pv-key obj",
+				applyState: (k) => applyObjectState(obj, k),
+				sortKeys: () => obj.userData.keyframes.sort((a, b) => a.t - b.t),
+				enableEase: false,
+			});
+		}
+		renderTrackOnTimeline({
+			keys: ks, parent: tlScrub, container: tlKeys,
+			lineCls: "tl-key-line", dotCls: "tl-key obj",
+			applyState: (k) => applyObjectState(obj, k),
+			sortKeys: () => obj.userData.keyframes.sort((a, b) => a.t - b.t),
+			enableEase: true,
+		});
+	}
+
+	// Keep the in-scene path overlay aligned with whatever the timeline shows.
+	refreshAnimPaths();
+	// After diamonds are rebuilt the active-state needs to be re-applied — otherwise
+	// the "playhead is parked on this key" highlight would vanish on every render.
+	refreshPlayheadActiveOnKeys();
 }
 
 function addKeyframe() {
@@ -2719,7 +3198,9 @@ function addKeyframe() {
 	const t = playhead;
 	keyframes = keyframes.filter(k => Math.abs(k.t - t) > 0.005);
 	const cap = captureCameraState();
-	keyframes.push({ t, pos: cap.pos, target: cap.target, up: cap.up, fov: cap.fov, ease: "easeInOut" });
+	const k = { t, pos: cap.pos, target: cap.target, up: cap.up, fov: cap.fov, ease: "easeInOut" };
+	keyframes.push(k);
+	justAddedKeys.add(k);
 	keyframes.sort((a, b) => a.t - b.t);
 	// Don't auto-select — newly created keys stay green; selection is an explicit user action.
 	selectedKeys.clear();
@@ -2727,20 +3208,75 @@ function addKeyframe() {
 	saveSceneDebounced?.();
 }
 
+function addObjectKeyframe(obj) {
+	if (!obj) return;
+	if (!Array.isArray(obj.userData.keyframes)) obj.userData.keyframes = [];
+	snapshotForUndo();
+	const t = playhead;
+	// Replace any existing key at this time (within 0.5% — same dedup window as camera).
+	obj.userData.keyframes = obj.userData.keyframes.filter(k => Math.abs(k.t - t) > 0.005);
+	const cap = captureObjectState(obj);
+	// Keys inserted BETWEEN existing keys default to "through" (positional waypoint, no
+	// new timing anchor) — most of the time when you slot a key into an in-progress
+	// motion you want to bend the arc, not pause at it. Outer keys default to easeInOut.
+	const others = obj.userData.keyframes;
+	const isBetween = others.length >= 2
+		&& t > others[0].t
+		&& t < others[others.length - 1].t;
+	const defaultEase = isBetween ? "through" : "easeInOut";
+	const k = { t, pos: cap.pos, quat: cap.quat, scale: cap.scale, ease: defaultEase };
+	obj.userData.keyframes.push(k);
+	justAddedKeys.add(k);
+	obj.userData.keyframes.sort((a, b) => a.t - b.t);
+	selectedKeys.clear();
+	renderKeyframeMarkers();
+	saveSceneDebounced?.();
+}
+
+// After a delete, a "through" key can end up as the first or last key on a track.
+// Through keys are position-only (no timing anchor), so leaving them at the boundary
+// would make the surviving track behave as if it started/ended much later. Promote
+// them to easeInOut so the visible outermost diamond becomes the actual start/end.
+function promoteBoundaryThrough(track) {
+	if (!Array.isArray(track) || track.length === 0) return;
+	if (track[0].ease === "through") track[0].ease = "easeInOut";
+	if (track.length > 1 && track[track.length - 1].ease === "through") {
+		track[track.length - 1].ease = "easeInOut";
+	}
+}
+
 function deleteKeyframes() {
 	snapshotForUndo();
 	if (selectedKeys.size) {
 		keyframes = keyframes.filter(k => !selectedKeys.has(k));
+		for (const obj of objects) {
+			if (Array.isArray(obj.userData?.keyframes)) {
+				obj.userData.keyframes = obj.userData.keyframes.filter(k => !selectedKeys.has(k));
+			}
+		}
 		selectedKeys.clear();
 	} else {
+		// "Clear all" — wipes both camera and every object track.
 		keyframes = [];
+		for (const obj of objects) {
+			if (Array.isArray(obj.userData?.keyframes)) obj.userData.keyframes = [];
+		}
 	}
+	promoteBoundaryThrough(keyframes);
+	for (const obj of objects) promoteBoundaryThrough(obj.userData?.keyframes);
+	// Re-sample every animated object at the current playhead so deleting a key
+	// snaps the object onto the next-nearest key instead of leaving it stranded
+	// at the deleted key's stored transform.
+	applyObjectsAt(playhead);
 	renderKeyframeMarkers();
 	saveSceneDebounced?.();
 }
 
 tlAddKey.addEventListener("click", () => {
-	addKeyframe();
+	// + targets whatever's selected: an object key when an object is selected,
+	// otherwise a camera key. Same gesture, different track.
+	if (selected) addObjectKeyframe(selected);
+	else addKeyframe();
 	tlAddKey.classList.remove("flash-green");
 	void tlAddKey.offsetWidth; // force reflow so the animation restarts on repeat clicks
 	tlAddKey.classList.add("flash-green");
@@ -2766,9 +3302,15 @@ tlScrub.addEventListener("pointerdown", e => {
 		if (!ev.shiftKey) {
 			const snapTol = SNAP_PX / rect.width;
 			let bestDist = Infinity, snapped = t;
-			for (const k of keyframes) {
-				const d = Math.abs(k.t - t);
-				if (d < bestDist && d <= snapTol) { bestDist = d; snapped = k.t; }
+			const trySnap = (keys) => {
+				for (const k of keys) {
+					const d = Math.abs(k.t - t);
+					if (d < bestDist && d <= snapTol) { bestDist = d; snapped = k.t; }
+				}
+			};
+			trySnap(keyframes);
+			for (const obj of objects) {
+				if (Array.isArray(obj.userData?.keyframes)) trySnap(obj.userData.keyframes);
 			}
 			t = snapped;
 		}
@@ -2906,9 +3448,11 @@ function setRecordingMode(on) {
 	// canvas.captureStream() only sees WebGL pixels, NOT HTML overlays — so the
 	// panel, status pill, aspect frame, and timeline are invisible to the recording.
 	// We DO want the grid in the recorded video (it's part of the motion reference
-	// for downstream models). Just hide the transform gizmo so a selection bracket
-	// doesn't get baked into the clip.
+	// for downstream models). Hide the transform gizmo AND the animated-object motion
+	// paths so those editor-only visualizers don't get baked into the clip.
 	transformHelper.visible = IS_PREVIEW ? false : !on;
+	animPathsGroup.visible = !on;
+	if (hoverDot) hoverDot.visible = hoverDot.visible && !on;
 }
 
 async function startRecording() {
@@ -3059,6 +3603,28 @@ function notifyParentSaved() {
 }
 
 
+function serializeObjectKeyframes(o) {
+	const ks = o.userData?.keyframes;
+	if (!Array.isArray(ks) || ks.length === 0) return undefined;
+	return ks.map(k => ({
+		t: k.t,
+		pos: k.pos.toArray(),
+		quat: [k.quat.x, k.quat.y, k.quat.z, k.quat.w],
+		scale: k.scale.toArray(),
+		ease: k.ease || "easeInOut",
+	}));
+}
+function deserializeObjectKeyframes(arr) {
+	if (!Array.isArray(arr)) return [];
+	return arr.map(k => ({
+		t: k.t,
+		pos: new THREE.Vector3().fromArray(k.pos),
+		quat: new THREE.Quaternion(k.quat[0], k.quat[1], k.quat[2], k.quat[3]),
+		scale: new THREE.Vector3().fromArray(k.scale),
+		ease: k.ease || "easeInOut",
+	}));
+}
+
 function serializeScene() {
 	return {
 		projectName: currentProjectName,
@@ -3070,6 +3636,7 @@ function serializeScene() {
 			scale: o.scale.toArray(),
 			color: o.material?.color?.getHex?.() ?? 0xffffff,
 			visible: o.visible !== false,
+			keyframes: serializeObjectKeyframes(o),
 		})),
 		imports: objects.filter(o => o.userData.assetId).map(o => ({
 			kind: o.userData.primKind,
@@ -3081,6 +3648,7 @@ function serializeScene() {
 			scale: o.scale.toArray(),
 			quaternion: [o.quaternion.x, o.quaternion.y, o.quaternion.z, o.quaternion.w],
 			visible: o.visible !== false,
+			keyframes: serializeObjectKeyframes(o),
 		})),
 		camera: {
 			position: camera.position.toArray(),
@@ -3130,6 +3698,7 @@ async function deserializeScene(state, opts = {}) {
 		mesh.scale.fromArray(p.scale);
 		if (p.color !== undefined) mesh.material.color.setHex(p.color);
 		if (p.visible === false) mesh.visible = false;
+		if (Array.isArray(p.keyframes)) mesh.userData.keyframes = deserializeObjectKeyframes(p.keyframes);
 	}
 
 	for (const im of (state.imports || [])) {
@@ -3152,6 +3721,7 @@ async function deserializeScene(state, opts = {}) {
 			});
 			const obj = objects[objects.length - 1];
 			if (obj && im.visible === false) obj.visible = false;
+			if (obj && Array.isArray(im.keyframes)) obj.userData.keyframes = deserializeObjectKeyframes(im.keyframes);
 			console.log(`[ComfyBlockout] restored import ${im.kind || ext} ${im.filename} (${buf.byteLength} bytes) from ${url}`);
 		} catch (e) {
 			console.error(`[ComfyBlockout] failed to restore import ${im.assetId} (${im.filename}) from ${url}:`, e);
@@ -3425,6 +3995,15 @@ function applyProjectName(name) {
 	currentProjectName = name || null;
 	projectNameEl.textContent = currentProjectName || "untitled";
 	projectNameEl.style.color = currentProjectName ? "#ffd28a" : "rgba(255,255,255,0.85)";
+	// Mirror the project name into the host top bar so the "ComfyBlockout : name"
+	// label stays in sync as the user opens / saves / creates projects.
+	try {
+		window.parent?.postMessage({
+			source: "comfy3d-editor",
+			type: "project-name",
+			name: currentProjectName,
+		}, "*");
+	} catch {}
 }
 
 const EMPTY_SCENE = {
@@ -3473,7 +4052,7 @@ function showProjectPicker() {
 		const projects = await listProjects();
 		const backdrop = document.createElement("div");
 		Object.assign(backdrop.style, {
-			position: "fixed", inset: "0", zIndex: "9998",
+			position: "absolute", inset: "0", zIndex: "9998",
 			background: "rgba(0,0,0,0.65)", display: "flex",
 			alignItems: "center", justifyContent: "center",
 		});
@@ -3510,7 +4089,12 @@ function showProjectPicker() {
 				del.onmouseleave = () => { del.style.opacity = "0.4"; del.style.color = ""; };
 				del.onclick = async (e) => {
 					e.stopPropagation();
-					if (!confirm(`Delete project "${name}"? This removes the saved scene and its asset copies.`)) return;
+					const ok = await showConfirm(
+						`Delete project "${name}"?`,
+						"This removes the saved scene and its asset copies.",
+						{ confirmText: "Delete", danger: true },
+					);
+					if (!ok) return;
 					await deleteProject(name);
 					row.remove();
 				};
@@ -3531,7 +4115,7 @@ function showProjectPicker() {
 		closeRow.appendChild(closeBtn);
 		card.appendChild(closeRow);
 		backdrop.appendChild(card);
-		document.body.appendChild(backdrop);
+		(document.getElementById("viewport-area") || document.body).appendChild(backdrop);
 		const onKey = (e) => { if (e.key === "Escape") { cleanup(); resolve(null); } };
 		document.addEventListener("keydown", onKey);
 		function cleanup() {
@@ -3541,8 +4125,120 @@ function showProjectPicker() {
 	});
 }
 
+// Custom modal helpers — replace native alert/confirm with in-frame cards that
+// match the editor's aesthetic and don't yank focus outside the iframe.
+function showAlert(title, message, opts = {}) {
+	const { confirmText = "OK", danger = false } = opts;
+	return new Promise((resolve) => {
+		const backdrop = document.createElement("div");
+		Object.assign(backdrop.style, {
+			position: "absolute", inset: "0", zIndex: "9998",
+			background: "rgba(0,0,0,0.65)", display: "flex",
+			alignItems: "center", justifyContent: "center",
+		});
+		const card = document.createElement("div");
+		Object.assign(card.style, {
+			background: "#15151c", border: "1px solid rgba(255,255,255,0.08)",
+			borderRadius: "10px", padding: "18px", minWidth: "320px",
+			maxWidth: "min(560px, 92vw)", maxHeight: "80vh",
+			display: "flex", flexDirection: "column",
+			color: "#ddd", fontFamily: "Inter, sans-serif", fontSize: "12px",
+		});
+		card.innerHTML = `
+			<div style="font-size:13px;font-weight:600;margin-bottom:8px">${title}</div>
+			<div style="color:rgba(255,255,255,0.65);line-height:1.5;overflow-y:auto;word-break:break-word;overflow-wrap:anywhere">${message}</div>
+		`;
+		const row = document.createElement("div");
+		Object.assign(row.style, { display: "flex", justifyContent: "flex-end", marginTop: "16px" });
+		const ok = document.createElement("button");
+		ok.textContent = confirmText;
+		Object.assign(ok.style, {
+			border: "none", padding: "6px 14px", borderRadius: "6px",
+			cursor: "pointer", fontFamily: "inherit", fontSize: "11px",
+			background: danger ? "rgba(255,80,80,0.22)" : "rgba(255,180,84,0.28)",
+			color: danger ? "#ff8a8a" : "#ffd28a",
+		});
+		row.appendChild(ok);
+		card.appendChild(row);
+		backdrop.appendChild(card);
+		(document.getElementById("viewport-area") || document.body).appendChild(backdrop);
+		setTimeout(() => ok.focus(), 0);
+		const cleanup = () => { document.removeEventListener("keydown", onKey); backdrop.remove(); resolve(); };
+		const onKey = (e) => { if (e.key === "Escape" || e.key === "Enter") cleanup(); };
+		document.addEventListener("keydown", onKey);
+		ok.onclick = cleanup;
+		backdrop.addEventListener("click", e => { if (e.target === backdrop) cleanup(); });
+	});
+}
+
+function showConfirm(title, message, opts = {}) {
+	const { confirmText = "OK", cancelText = "Cancel", danger = false } = opts;
+	return new Promise((resolve) => {
+		const backdrop = document.createElement("div");
+		Object.assign(backdrop.style, {
+			position: "absolute", inset: "0", zIndex: "9998",
+			background: "rgba(0,0,0,0.65)", display: "flex",
+			alignItems: "center", justifyContent: "center",
+		});
+		const card = document.createElement("div");
+		Object.assign(card.style, {
+			background: "#15151c", border: "1px solid rgba(255,255,255,0.08)",
+			borderRadius: "10px", padding: "18px", minWidth: "320px",
+			maxWidth: "min(560px, 92vw)", maxHeight: "80vh",
+			display: "flex", flexDirection: "column",
+			color: "#ddd", fontFamily: "Inter, sans-serif", fontSize: "12px",
+		});
+		card.innerHTML = `
+			<div style="font-size:13px;font-weight:600;margin-bottom:8px">${title}</div>
+			<div style="color:rgba(255,255,255,0.65);line-height:1.5;overflow-y:auto;word-break:break-word;overflow-wrap:anywhere">${message}</div>
+		`;
+		const row = document.createElement("div");
+		Object.assign(row.style, { display: "flex", justifyContent: "flex-end", gap: "6px", marginTop: "16px" });
+		const cancel = document.createElement("button");
+		cancel.textContent = cancelText;
+		const ok = document.createElement("button");
+		ok.textContent = confirmText;
+		for (const b of [cancel, ok]) {
+			Object.assign(b.style, {
+				border: "none", padding: "6px 14px", borderRadius: "6px",
+				cursor: "pointer", fontFamily: "inherit", fontSize: "11px",
+			});
+		}
+		cancel.style.background = "rgba(255,255,255,0.08)";
+		cancel.style.color = "#fff";
+		if (danger) {
+			ok.style.background = "rgba(255,80,80,0.22)";
+			ok.style.color = "#ff8a8a";
+		} else {
+			ok.style.background = "rgba(255,180,84,0.28)";
+			ok.style.color = "#ffd28a";
+		}
+		row.append(cancel, ok);
+		card.appendChild(row);
+		backdrop.appendChild(card);
+		(document.getElementById("viewport-area") || document.body).appendChild(backdrop);
+		setTimeout(() => ok.focus(), 0);
+		const cleanup = (val) => { document.removeEventListener("keydown", onKey); backdrop.remove(); resolve(val); };
+		const onKey = (e) => {
+			if (e.key === "Escape") cleanup(false);
+			else if (e.key === "Enter") cleanup(true);
+		};
+		document.addEventListener("keydown", onKey);
+		cancel.onclick = () => cleanup(false);
+		ok.onclick = () => cleanup(true);
+		backdrop.addEventListener("click", e => { if (e.target === backdrop) cleanup(false); });
+	});
+}
+
 document.getElementById("project-new").addEventListener("click", async () => {
-	if (objects.length > 0 && !confirm("Start a new scene? Unsaved changes to the current node will be replaced.")) return;
+	if (objects.length > 0) {
+		const ok = await showConfirm(
+			"Start a new scene?",
+			"Unsaved changes to the current node will be replaced.",
+			{ confirmText: "Start new" },
+		);
+		if (!ok) return;
+	}
 	await deserializeScene(EMPTY_SCENE);
 	// Drop a starter cube so "New" matches the fresh-node experience instead of leaving
 	// the user staring at an empty grid. addPrimitive picks the next palette color.
@@ -3573,7 +4269,7 @@ function showNamePrompt(title, suggested) {
 	return new Promise((resolve) => {
 		const backdrop = document.createElement("div");
 		Object.assign(backdrop.style, {
-			position: "fixed", inset: "0", zIndex: "9998",
+			position: "absolute", inset: "0", zIndex: "9998",
 			background: "rgba(0,0,0,0.65)", display: "flex",
 			alignItems: "center", justifyContent: "center",
 		});
@@ -3612,7 +4308,7 @@ function showNamePrompt(title, suggested) {
 		row.append(cancel, ok);
 		card.appendChild(row);
 		backdrop.appendChild(card);
-		document.body.appendChild(backdrop);
+		(document.getElementById("viewport-area") || document.body).appendChild(backdrop);
 		setTimeout(() => { input.focus(); input.select(); }, 0);
 		const cleanup = (val) => { document.removeEventListener("keydown", onKey); backdrop.remove(); resolve(val); };
 		const onKey = (e) => {
@@ -3669,6 +4365,21 @@ window.addEventListener("keydown", e => {
 			doSaveAs();
 		}
 	}
+});
+
+// Route project actions dispatched from the host top bar (New / Open / Save / Save As).
+// Uses the offscreen buttons that still own the handler wiring so behavior stays in
+// one place instead of duplicating the logic here.
+window.addEventListener("message", (ev) => {
+	if (ev.data?.source !== "comfy3d-parent" || ev.data?.type !== "project-action") return;
+	const map = {
+		"new": "project-new",
+		"open": "project-open",
+		"save": "project-save",
+		"save-as": "project-save-as",
+	};
+	const id = map[ev.data.action];
+	if (id) document.getElementById(id)?.click();
 });
 
 orbit.addEventListener("change", saveSceneDebounced);
@@ -3944,9 +4655,15 @@ if (IS_PREVIEW) {
 			if (!ev.shiftKey) {
 				const snapTol = SNAP_PX / rect.width;
 				let bestDist = Infinity, snapped = t;
-				for (const k of keyframes) {
-					const d = Math.abs(k.t - t);
-					if (d < bestDist && d <= snapTol) { bestDist = d; snapped = k.t; }
+				const trySnap = (keys) => {
+					for (const k of keys) {
+						const d = Math.abs(k.t - t);
+						if (d < bestDist && d <= snapTol) { bestDist = d; snapped = k.t; }
+					}
+				};
+				trySnap(keyframes);
+				for (const obj of objects) {
+					if (Array.isArray(obj.userData?.keyframes)) trySnap(obj.userData.keyframes);
 				}
 				t = snapped;
 			}
