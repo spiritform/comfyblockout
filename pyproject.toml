@@ -1,7 +1,7 @@
 [project]
 name = "comfyblockout"
 description = "3D editor node — build a blockout scene (primitives, GLB, FBX with animation, gaussian splats), record a keyframed camera path, and feed the rendered mp4 + image + prompt into Seedance / Nano Banana / Flux / any downstream model."
-version = "0.4.0"
+version = "1.1.0"
 license = { file = "LICENSE" }
 dependencies = [
     "imageio-ffmpeg",
