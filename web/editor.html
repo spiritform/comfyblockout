@@ -1589,11 +1589,16 @@ function applyParticleImage(points, image) {
 	});
 }
 
-function tickParticleSystems(dt) {
+function tickParticleSystems() {
+	// uTime is derived from the transport playhead so scrubbing to any frame
+	// shows the exact particle state at that moment. Editor + preview share
+	// the same playhead via playhead-sync, so both viewports render identically.
+	const dur = (typeof currentDuration === "function") ? currentDuration() : 4;
+	const t = playhead * dur;
 	for (const points of particleSystems) {
 		const ps = points.userData?.particleSystem;
 		if (!ps) continue;
-		ps.mat.uniforms.uTime.value += dt;
+		ps.mat.uniforms.uTime.value = t;
 	}
 }
 
@@ -3713,11 +3718,10 @@ function loop() {
 		// skips the first synchronous loop() call, before `isPlayingPreview` /
 		// `recording` are declared (TDZ from below).
 		if (frameCounter > 0) {
-			// Particles hide until first play, then pause-in-place on stop. Preview
-			// iframe mirrors editor's isPlayingPreview via the play-state postMessage
-			// bridge (see broadcastPlayState / comfyblockout.js playStateForwarder),
-			// so both viewports render identically at every playhead position.
-			const playing = isPlayingPreview || recording;
+			// Particles: uTime is tied to the playhead now (see tickParticleSystems),
+			// so scrubbing to any frame shows the exact particle state. Emitter Points
+			// stays visible always — the shader's birth gate hides pre-emission
+			// particles on its own. Editor + preview render identically per frame.
 			if (particleSystems.length) {
 				for (const p of particleSystems) {
 					if (p.userData.primKind !== "particles") continue;
@@ -3731,13 +3735,9 @@ function loop() {
 						ps.helperGroup.scale.copy(p.scale);
 						ps.helperGroup.visible = !IS_PREVIEW && !recording && ps.config.emitter !== "point" && p.userData._userVisible !== false;
 					}
-					if (p.userData._userVisible === false) { p.visible = false; continue; }
-					p.visible = playing || p.userData._hasBeenTicked === true;
+					p.visible = p.userData._userVisible !== false;
 				}
-				if (playing) {
-					tickParticleSystems(dt);
-					for (const p of particleSystems) if (p.userData.primKind === "particles") p.userData._hasBeenTicked = true;
-				}
+				tickParticleSystems();
 			}
 		}
 		tickFlyMovement(dt);
@@ -4148,11 +4148,11 @@ function setPlayhead(t) {
 	applyObjectsAt(playhead);
 	refreshPlayheadActiveOnKeys();
 	// Persist manual scrubs so closing the editor lands on the same frame later.
-	// Skipped during playback (saveScene runs on stop instead) and during scene
-	// restore. try/catch swallows the boot-time TDZ on saveSceneDebounced/recording
-	// (both declared later in the file) — the boot call intentionally no-ops.
+	// Skipped during playback, during scene restore, and when THIS call was itself
+	// triggered by a remote message (would ping-pong scene-syncs forever). try/catch
+	// swallows the boot-time TDZ on saveSceneDebounced/recording — no-op there.
 	try {
-		if (!isPlayingPreview && !recording && !restoringScene) saveSceneDebounced();
+		if (!isPlayingPreview && !recording && !restoringScene && !_playheadInbound) saveSceneDebounced();
 	} catch {}
 }
 
@@ -5214,9 +5214,11 @@ function applyLightSync(state) {
 		refreshTrimUI();
 	}
 	// Mirror the sender's playhead so the preview iframe (or the editor, if the
-	// preview ever regains one) shows the same frame while paused.
+	// preview ever regains one) shows the same frame while paused. Mark inbound so
+	// this doesn't re-broadcast + queue a save — that would ping-pong forever.
 	if (typeof state.playhead === "number") {
-		setPlayhead(clampPlayheadToTrim(Math.max(0, Math.min(1, state.playhead))));
+		_playheadInbound = true;
+		try { setPlayhead(clampPlayheadToTrim(Math.max(0, Math.min(1, state.playhead)))); } finally { _playheadInbound = false; }
 	}
 	// Keyframes are cheap (positions + tween hints) — no asset fetches, so light sync
 	// can swap them in too. Without this the preview's mini-timeline doesn't show
