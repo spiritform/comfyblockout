@@ -130,6 +130,15 @@
 	body.preview-mode #aspect-frame { border-color: rgba(255,255,255,0.05); }
 	body.preview-mode #viewport-area { padding: 0; }
 	body.preview-mode #canvas-wrap { padding: 0; }
+	/* Preview mode: pin everything to the iframe's actual viewport width so a
+	   ComfyUI-side node move / resize can't leave the canvas rendered at a stale
+	   larger size (which used to leak the 3D scene outside the node's chrome). */
+	body.preview-mode {
+		overflow: hidden;
+		width: 100vw; max-width: 100vw;
+	}
+	body.preview-mode #viewport-area,
+	body.preview-mode #canvas-wrap { overflow: hidden; max-width: 100vw; }
 	/* Preview footer: transport on top, brand/time row below, grouped inside a
 	   single padded container so the whole group has equal space around it.
 	   canvas-wrap shrinks naturally above so the scene never renders behind it. */
@@ -2820,13 +2829,18 @@ function refreshObjectInspector() {
 	// reversed even after we've nulled out material.map.
 	const texMats = collectTexturedMaterials(selected);
 	const hasStashed = Array.isArray(selected.userData._stashedMaps) && selected.userData._stashedMaps.length > 0;
+	// Explicit boolean flag — source of truth for the button UI. Undefined means
+	// "never touched" so we infer from the current state.
+	if (selected.userData._textureVisible === undefined){
+		selected.userData._textureVisible = !hasStashed;
+	}
+	const visible = selected.userData._textureVisible !== false;
 	const hasAnyTex = texMats.length > 0 || hasStashed;
 	objTextureBtn.hidden = !hasAnyTex;
 	if (hasAnyTex) {
-		const on = texMats.length > 0;
-		objTextureBtn.classList.toggle("has-image", on);
+		objTextureBtn.classList.toggle("has-image", visible);
 		objTextureLabel.textContent = "Texture";
-		objTextureIcon.innerHTML = on ? EYE_ON_SVG : EYE_OFF_SVG;
+		objTextureIcon.innerHTML = visible ? EYE_ON_SVG : EYE_OFF_SVG;
 	}
 	refreshParticlesInspector?.();
 }
@@ -2845,10 +2859,10 @@ objColorInput.addEventListener("input", e => {
 // original color underneath so the un-textured object still reads correctly.
 objTextureBtn.addEventListener("click", () => {
 	if (!selected) return;
-	const stashed = selected.userData._stashedMaps || [];
-	const currentTex = collectTexturedMaterials(selected);
-	if (currentTex.length > 0) {
-		// Hide: save each material's current map and null it out.
+	const visible = selected.userData._textureVisible !== false;
+	if (visible) {
+		// Currently on → hide. Collect live maps, stash, null them.
+		const currentTex = collectTexturedMaterials(selected);
 		const store = [];
 		for (const m of currentTex) {
 			store.push({ mat: m, map: m.map });
@@ -2856,13 +2870,15 @@ objTextureBtn.addEventListener("click", () => {
 			m.needsUpdate = true;
 		}
 		selected.userData._stashedMaps = store;
-	} else if (stashed.length > 0) {
-		// Show: restore stashed maps.
+		selected.userData._textureVisible = false;
+	} else {
+		// Currently off → show. Restore whatever we've stashed.
+		const stashed = selected.userData._stashedMaps || [];
 		for (const { mat, map } of stashed) {
-			mat.map = map;
-			mat.needsUpdate = true;
+			if (mat) { mat.map = map; mat.needsUpdate = true; }
 		}
 		selected.userData._stashedMaps = [];
+		selected.userData._textureVisible = true;
 	}
 	refreshObjectInspector();
 	saveSceneDebounced?.();
@@ -3473,6 +3489,11 @@ function handleResize() {
 	});
 }
 new ResizeObserver(handleResize).observe(canvasWrap);
+// Also re-fit on the iframe window itself resizing — ComfyUI can move / relayout
+// the node in a way that changes the iframe's outer size without immediately
+// notifying its inner ResizeObserver, leaving the canvas rendered at a stale
+// larger size that leaks past the node's chrome.
+window.addEventListener("resize", handleResize);
 
 const dropOverlay = document.getElementById("drop-overlay");
 let dragDepth = 0;
@@ -4650,9 +4671,15 @@ function deserializeObjectKeyframes(arr) {
 	}));
 }
 
+function getSelectionKey(obj){
+	if (!obj) return null;
+	if (obj.userData.assetId) return `asset:${obj.userData.assetId}`;
+	return `name:${obj.name || ""}`;
+}
 function serializeScene() {
 	return {
 		projectName: currentProjectName,
+		lastSelectedKey: getSelectionKey(selected),
 		primitives: objects.filter(o => o.userData.primKind && (o.userData.primKind in PRIM_DEFS)).map(o => ({
 			kind: o.userData.primKind,
 			name: o.name,
@@ -4673,6 +4700,7 @@ function serializeScene() {
 			scale: o.scale.toArray(),
 			quaternion: [o.quaternion.x, o.quaternion.y, o.quaternion.z, o.quaternion.w],
 			visible: o.visible !== false,
+			textureHidden: o.userData._textureVisible === false,
 			keyframes: serializeObjectKeyframes(o),
 		})),
 		particles: objects.filter(o => o.userData.primKind === "particles").map(o => ({
@@ -4722,6 +4750,9 @@ async function deserializeScene(state, opts = {}) {
 	restoringScene = true;
 	cancelPendingSave();
 	try {
+	// preserve selection across the wipe: prefer the server-persisted key, fall
+	// back to whatever's live so live-sync doesn't clobber the user's selection
+	const wantSelKey = state.lastSelectedKey ?? getSelectionKey(selected);
 	applyProjectName(state.projectName || null);
 	while (objects.length) deleteObject(objects[0]);
 
@@ -4768,6 +4799,19 @@ async function deserializeScene(state, opts = {}) {
 			});
 			const obj = objects[objects.length - 1];
 			if (obj && im.visible === false) obj.visible = false;
+			if (obj && im.textureHidden){
+				const currentTex = collectTexturedMaterials(obj);
+				const store = [];
+				for (const m of currentTex){
+					store.push({ mat: m, map: m.map });
+					m.map = null;
+					m.needsUpdate = true;
+				}
+				obj.userData._stashedMaps = store;
+				obj.userData._textureVisible = false;
+			} else if (obj){
+				obj.userData._textureVisible = true;
+			}
 			if (obj && Array.isArray(im.keyframes)) obj.userData.keyframes = deserializeObjectKeyframes(im.keyframes);
 			console.log(`[ComfyBlockout] restored import ${im.kind || ext} ${im.filename} (${buf.byteLength} bytes) from ${url}`);
 		} catch (e) {
@@ -4854,6 +4898,11 @@ async function deserializeScene(state, opts = {}) {
 
 	transform.detach();
 	selected = null;
+	// re-select the object that was selected before the wipe (or before reload)
+	if (wantSelKey){
+		const found = objects.find(o => getSelectionKey(o) === wantSelKey);
+		if (found) select(found);
+	}
 	refreshOutliner();
 	// Always clamp the playhead into the trim region with the gap so the yellow line never
 	// sits directly on top of an orange trim handle at scene start
