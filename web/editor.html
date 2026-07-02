@@ -882,11 +882,29 @@
 					</div>
 				</div>
 
+				<div class="section" id="obj-particles-emitter" hidden>
+					<div class="section-label">Emitter</div>
+					<div class="select-row">
+						<select id="ps-emitter">
+							<option value="point">Point</option>
+							<option value="box">Box</option>
+							<option value="sphere">Sphere</option>
+						</select>
+					</div>
+					<div class="select-row" style="margin-top:6px">
+						<select id="ps-direction">
+							<option value="directional">Directional</option>
+							<option value="omni">Omni</option>
+						</select>
+					</div>
+					<div class="hint">Use Transform · Scale to resize the emitter volume. Omni ignores Spread.</div>
+				</div>
+
 				<div class="section" id="obj-particles-section" hidden>
 					<div class="section-label">Appearance</div>
 					<div class="rp-bg-pair">
 						<label class="rp-bg-row" id="ps-color-btn" title="Particle color">
-							<input type="color" id="ps-color" value="#ffaa44">
+							<input type="color" id="ps-color" value="#ffffff">
 							<span>Color</span>
 						</label>
 						<button type="button" class="rp-bg-row rp-bg-img-btn" id="ps-sprite-btn" title="Sprite texture (overrides soft dot)">
@@ -908,6 +926,7 @@
 					<div class="select-row" style="margin-bottom:6px">
 						<select id="ps-style">
 							<option value="soft">Soft dot</option>
+							<option value="point">Point</option>
 							<option value="solid">Solid dot</option>
 							<option value="square">Square</option>
 						</select>
@@ -918,22 +937,11 @@
 					</div>
 				</div>
 
-				<div class="section" id="obj-particles-emitter" hidden>
-					<div class="section-label">Emitter</div>
-					<div class="select-row">
-						<select id="ps-emitter">
-							<option value="point">Point</option>
-							<option value="box">Box</option>
-							<option value="sphere">Sphere</option>
-						</select>
-					</div>
-					<div class="hint">Use Transform · Scale to resize the emitter volume.</div>
-				</div>
-
 				<div class="section" id="obj-particles-emission" hidden>
 					<div class="section-label">Emission</div>
 					<div class="drag-row">
 						<div class="drag-num" id="ps-count" style="flex:1"><span class="drag-label">Count</span><span class="drag-val">1000</span></div>
+						<div class="drag-num" id="ps-rate" style="flex:1"><span class="drag-label">Rate</span><span class="drag-val">500</span></div>
 						<div class="drag-num" id="ps-life" style="flex:1"><span class="drag-label">Life</span><span class="drag-val">2.0</span></div>
 					</div>
 				</div>
@@ -943,7 +951,6 @@
 					<div class="drag-row">
 						<div class="drag-num" id="ps-speed"><span class="drag-label">Speed</span><span class="drag-val">1.00</span></div>
 						<div class="drag-num" id="ps-spread"><span class="drag-label">Spread</span><span class="drag-val">17°</span></div>
-						<div class="drag-num" id="ps-turb"><span class="drag-label">Turb</span><span class="drag-val">0.00</span></div>
 					</div>
 				</div>
 
@@ -957,6 +964,11 @@
 						<div class="drag-num" id="ps-wx"><span class="drag-label">X</span><span class="drag-val">0.00</span></div>
 						<div class="drag-num" id="ps-wy"><span class="drag-label">Y</span><span class="drag-val">0.00</span></div>
 						<div class="drag-num" id="ps-wz"><span class="drag-label">Z</span><span class="drag-val">0.00</span></div>
+					</div>
+					<div class="sub-label" style="margin-top:8px">Effectors</div>
+					<div class="drag-row">
+						<div class="drag-num" id="ps-turb"><span class="drag-label">Turbulence</span><span class="drag-val">0.00</span></div>
+						<div class="drag-num" id="ps-noise"><span class="drag-label">Noise</span><span class="drag-val">0.00</span></div>
 					</div>
 				</div>
 
@@ -1122,7 +1134,15 @@ const params = new URLSearchParams(location.search);
 const NODE_ID = params.get("node_id") || "preview";
 // Treat as preview when ?mode=preview is in the URL (string check is bulletproof).
 const IS_PREVIEW = /[?&]mode=preview(\b|&|$)/.test(location.search);
-if (IS_PREVIEW) document.body.classList.add("preview-mode");
+if (IS_PREVIEW) {
+	document.body.classList.add("preview-mode");
+	// Belt-and-suspenders: also flip the `hidden` attr on the chrome panels so any
+	// CSS specificity accident (or a later JS write) can't leave the OBJECTS panel
+	// leaking into the node iframe. `hidden` beats a `display: block` inline write.
+	for (const id of ["panel", "right-panel", "timeline", "viewport-toolbar", "status", "info-block"]) {
+		document.getElementById(id)?.setAttribute("hidden", "");
+	}
+}
 
 const canvas = document.getElementById("renderCanvas");
 const canvasWrap = document.getElementById("canvas-wrap");
@@ -1272,6 +1292,7 @@ const primCounters = {};
 // beyond bumping uTime.
 const DEFAULT_PARTICLE_CONFIG = {
 	count: 1000,
+	rate: 500,              // birth rate (particles/second) — how fast new particles emit from the source
 	size: 0.1,
 	random: 0.4,            // per-particle size variance (0 = uniform, 1 = ±100%)
 	lifetime: 2.0,
@@ -1280,10 +1301,12 @@ const DEFAULT_PARTICLE_CONFIG = {
 	gravity: -1.0,
 	wind: [0, 0, 0],
 	turbulence: 0,
-	color: 0xffaa44,
+	noise: 0,
+	color: 0xffffff,
 	blending: "additive",   // "additive" | "normal"
 	style: "soft",          // "soft" | "solid" | "square"
 	emitter: "point",       // "point" | "box" | "sphere" (unit-sized; use object Scale to resize)
+	direction: "directional", // "directional" | "omni" — omni emits uniformly on a sphere, ignores Spread
 	image: null,            // { assetId, ext } | null
 };
 
@@ -1297,11 +1320,14 @@ attribute vec3  aInitPos;
 varying float vAlpha;
 uniform float uTime;
 uniform float uLifetime;
+uniform float uCycle;
 uniform float uSize;
 uniform float uRandom;
 uniform float uInitialSpeed;
 uniform vec3  uGravity;
 uniform float uTurbulence;
+uniform float uNoise;
+uniform int   uStyle;
 uniform float uPixelRatio;
 
 vec3 turbulenceField(vec3 p, float t) {
@@ -1313,32 +1339,70 @@ vec3 turbulenceField(vec3 p, float t) {
 }
 
 void main() {
-	float age = mod(uTime + aLifeOffset, uLifetime);
+	// aLifeOffset is a BIRTH DELAY (i / rate seconds). Particles emit one after
+	// another so the emitter STREAMS from the source instead of appearing at
+	// once. After uCycle seconds (N/rate) particle 0 re-emits, and so on.
+	float rawT = uTime - aLifeOffset;
+	if (rawT < 0.0) {
+		gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+		gl_PointSize = 0.0;
+		vAlpha = 0.0;
+		return;
+	}
+	// One age-cycle = uCycle seconds. Within a cycle the particle is alive for
+	// its uLifetime then dead until the next wrap. When rate = count/lifetime,
+	// cycle == lifetime and the pool is in continuous steady state.
+	float cyclePhase = mod(rawT, uCycle);
+	if (cyclePhase > uLifetime) {
+		gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+		gl_PointSize = 0.0;
+		vAlpha = 0.0;
+		return;
+	}
+	float age = cyclePhase;
 	float life = age / uLifetime;
 	vec3 v0 = aInitVel * uInitialSpeed;
 	vec3 pos = aInitPos + v0 * age + 0.5 * uGravity * age * age;
 	if (uTurbulence > 0.0) {
 		pos += turbulenceField(v0 * age, age) * uTurbulence * age;
 	}
-	vAlpha = 1.0 - life;
+	if (uNoise > 0.0) {
+		// High-freq per-particle jitter — same field, tighter frequency + faster
+		// time so it reads as noise on top of the coherent turbulence flow.
+		pos += turbulenceField(pos * 6.0 + aSeed * 41.0, age * 4.0) * uNoise * age;
+	}
+	// Birth fade-in over first 5% of life, death fade-out over last 30%.
+	float birthFade = smoothstep(0.0, 0.05, life);
+	float deathFade = 1.0 - smoothstep(0.7, 1.0, life);
+	vAlpha = birthFade * deathFade;
 	// Per-particle size variance — uRandom of 0 = uniform, 1 = ±100% around uSize.
 	float size = uSize * (1.0 + (aSeed - 0.5) * 2.0 * uRandom);
 	vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
 	gl_Position = projectionMatrix * mvPosition;
-	gl_PointSize = size * 300.0 * uPixelRatio / max(0.001, -mvPosition.z);
+	// Point style = 1-pixel dot regardless of camera distance; other styles scale
+	// with distance so they read as world-space sprites.
+	if (uStyle == 3) {
+		gl_PointSize = max(1.0, uPixelRatio);
+	} else {
+		gl_PointSize = size * 300.0 * uPixelRatio / max(0.001, -mvPosition.z);
+	}
 }`;
 
 const PARTICLE_FRAG = `
 uniform vec3 uColor;
 uniform sampler2D uTexture;
 uniform int uHasTexture;
-uniform int uStyle;         // 0 = soft, 1 = solid, 2 = square
+uniform int uStyle;         // 0 = soft, 1 = solid, 2 = square, 3 = point (1px)
 varying float vAlpha;
 void main() {
 	vec4 col;
 	if (uHasTexture == 1) {
 		col = texture2D(uTexture, gl_PointCoord);
 		col.rgb *= uColor;
+	} else if (uStyle == 3) {
+		// Point: single-pixel dot — no shape mask, full color, GL_POINTS is already
+		// per-pixel so we ignore gl_PointCoord entirely and paint the whole quad.
+		col = vec4(uColor, 1.0);
 	} else if (uStyle == 2) {
 		// Square: full point coord, no shape mask.
 		col = vec4(uColor, 1.0);
@@ -1363,17 +1427,31 @@ function buildParticleAttributes(N, cfg) {
 	const lifeOffsets = new Float32Array(N);
 	const initVels    = new Float32Array(N * 3);
 	const initPos     = new Float32Array(N * 3); // spawn offset in local unit-space
+	const omni = cfg.direction === "omni";
+	// Birth delay per particle. Stagger by 1/rate so `rate` particles emit per
+	// second — birthDelay[N-1] = N/rate (the full "cycle") is also when particle 0
+	// re-emits. Falling back to N/lifetime keeps legacy scenes without rate saved.
+	const rate = Math.max(1e-3, cfg.rate || (N / Math.max(0.001, cfg.lifetime)));
 	for (let i = 0; i < N; i++) {
 		seeds[i] = Math.random();
-		// stagger births uniformly across lifetime → continuous stream from t=0
-		lifeOffsets[i] = (i / N) * cfg.lifetime;
-		const theta = Math.random() * Math.PI * 2;
-		const phi   = Math.random() * cfg.spread;
+		lifeOffsets[i] = i / rate;
 		const sp = (0.7 + Math.random() * 0.6);
 		const ai = i * 3;
-		initVels[ai]     = Math.sin(phi) * Math.cos(theta) * sp;
-		initVels[ai + 1] = Math.cos(phi) * sp;
-		initVels[ai + 2] = Math.sin(phi) * Math.sin(theta) * sp;
+		if (omni) {
+			// Uniform point on the unit sphere (Marsaglia) — Spread is ignored.
+			let x1, x2, s;
+			do { x1 = Math.random() * 2 - 1; x2 = Math.random() * 2 - 1; s = x1 * x1 + x2 * x2; } while (s >= 1);
+			const factor = 2 * Math.sqrt(1 - s);
+			initVels[ai]     = x1 * factor * sp;
+			initVels[ai + 1] = (1 - 2 * s) * sp;
+			initVels[ai + 2] = x2 * factor * sp;
+		} else {
+			const theta = Math.random() * Math.PI * 2;
+			const phi   = Math.random() * cfg.spread;
+			initVels[ai]     = Math.sin(phi) * Math.cos(theta) * sp;
+			initVels[ai + 1] = Math.cos(phi) * sp;
+			initVels[ai + 2] = Math.sin(phi) * Math.sin(theta) * sp;
+		}
 		// Spawn origin: point = 0, box = random in unit cube [-0.5, 0.5], sphere = random on unit sphere.
 		if (cfg.emitter === "box") {
 			initPos[ai]     = Math.random() - 0.5;
@@ -1406,19 +1484,23 @@ function buildParticleSystem(initialConfig) {
 	geom.setAttribute("aInitPos",    new THREE.BufferAttribute(initPos, 3));
 	geom.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6); // skip culling
 
+	const rate = Math.max(1e-3, cfg.rate || (N / Math.max(0.001, cfg.lifetime)));
+	const cycle = N / rate;
 	const mat = new THREE.ShaderMaterial({
 		uniforms: {
 			uTime:         { value: 0 },
 			uLifetime:     { value: cfg.lifetime },
+			uCycle:        { value: cycle },
 			uSize:         { value: cfg.size },
 			uRandom:       { value: cfg.random },
 			uInitialSpeed: { value: cfg.initialSpeed },
 			uGravity:      { value: new THREE.Vector3(cfg.wind[0], cfg.wind[1] + cfg.gravity, cfg.wind[2]) },
 			uTurbulence:   { value: cfg.turbulence },
+			uNoise:        { value: cfg.noise || 0 },
 			uColor:        { value: new THREE.Color(cfg.color) },
 			uTexture:      { value: null },
 			uHasTexture:   { value: 0 },
-			uStyle:        { value: cfg.style === "solid" ? 1 : cfg.style === "square" ? 2 : 0 },
+			uStyle:        { value: cfg.style === "solid" ? 1 : cfg.style === "square" ? 2 : cfg.style === "point" ? 3 : 0 },
 			uPixelRatio:   { value: window.devicePixelRatio || 1 },
 		},
 		vertexShader: PARTICLE_VERT,
@@ -1430,8 +1512,32 @@ function buildParticleSystem(initialConfig) {
 
 	const points = new THREE.Points(geom, mat);
 	points.frustumCulled = false;
-	points.userData.particleSystem = { config: cfg, geom, mat, points };
+
+	// Emitter shape helper — unit-sized wireframe that shows the spawn volume.
+	// Lives at the scene level (NOT as a child of Points) so hiding the emitter
+	// during idle doesn't also hide the volume outline. The loop syncs its
+	// position/rotation/scale from Points every frame.
+	const helperGroup = new THREE.Group();
+	helperGroup.userData._isEmitterHelper = true;
+	const helperMat = new THREE.LineBasicMaterial({ color: 0xcccdd2, transparent: true, opacity: 0.55, depthTest: false });
+	const boxHelper = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), helperMat);
+	const sphereHelper = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(0.5, 2)), helperMat);
+	boxHelper.renderOrder = 995;
+	sphereHelper.renderOrder = 995;
+	helperGroup.add(boxHelper);
+	helperGroup.add(sphereHelper);
+
+	points.userData.particleSystem = { config: cfg, geom, mat, points, boxHelper, sphereHelper, helperGroup };
+	updateEmitterHelper(points);
 	return points;
+}
+
+function updateEmitterHelper(points) {
+	const ps = points.userData.particleSystem;
+	if (!ps || !ps.boxHelper || !ps.sphereHelper) return;
+	const k = ps.config.emitter;
+	ps.boxHelper.visible = k === "box";
+	ps.sphereHelper.visible = k === "sphere";
 }
 
 function rebuildParticleAttributes(points) {
@@ -1451,13 +1557,17 @@ function syncParticleUniforms(points) {
 	const cfg = ps.config;
 	const u = ps.mat.uniforms;
 	u.uLifetime.value     = cfg.lifetime;
+	const N = Math.max(1, cfg.count | 0);
+	const rate = Math.max(1e-3, cfg.rate || (N / Math.max(0.001, cfg.lifetime)));
+	if (u.uCycle) u.uCycle.value = N / rate;
 	u.uSize.value         = cfg.size;
 	u.uRandom.value       = cfg.random;
 	u.uInitialSpeed.value = cfg.initialSpeed;
 	u.uTurbulence.value   = cfg.turbulence;
+	if (u.uNoise) u.uNoise.value = cfg.noise || 0;
 	u.uGravity.value.set(cfg.wind[0], cfg.wind[1] + cfg.gravity, cfg.wind[2]);
 	u.uColor.value.setHex(cfg.color);
-	u.uStyle.value        = cfg.style === "solid" ? 1 : cfg.style === "square" ? 2 : 0;
+	u.uStyle.value        = cfg.style === "solid" ? 1 : cfg.style === "square" ? 2 : cfg.style === "point" ? 3 : 0;
 	ps.mat.blending = cfg.blending === "additive" ? THREE.AdditiveBlending : THREE.NormalBlending;
 	ps.mat.needsUpdate = true;
 }
@@ -1495,6 +1605,9 @@ function addParticleEmitter(initialConfig) {
 	points.position.set(0, 0.5, 0);
 	points.userData.primKind = "particles";
 	scene.add(points);
+	// Emitter shape helper lives on the scene (not as a Points child) so it stays
+	// visible while the particles themselves are hidden pre-play.
+	if (points.userData.particleSystem?.helperGroup) scene.add(points.userData.particleSystem.helperGroup);
 	objects.push(points);
 	particleSystems.push(points);
 	select(points);
@@ -1967,6 +2080,7 @@ function deleteObject(obj) {
 		const i = particleSystems.indexOf(obj);
 		if (i >= 0) particleSystems.splice(i, 1);
 		const ps = obj.userData.particleSystem;
+		if (ps?.helperGroup?.parent) ps.helperGroup.parent.remove(ps.helperGroup);
 		ps?.geom?.dispose();
 		ps?.mat?.dispose();
 	}
@@ -2152,6 +2266,9 @@ document.getElementById("mode-camera")?.addEventListener("click", () => {
 
 function toggleVisibility(obj) {
 	obj.visible = !obj.visible;
+	// For particles the play-gate rewrites `.visible` every frame — stash the user's
+	// intent here so the gate respects it (hide stays hidden even during playback).
+	if (obj.userData?.primKind === "particles") obj.userData._userVisible = obj.visible;
 	refreshOutliner();
 	if (typeof saveScene === "function") saveScene();
 }
@@ -2937,6 +3054,9 @@ function setupPSField(id, getter, setter, opts = {}) {
 
 setupPSField("ps-count", c => c.count, (c, v) => { c.count = Math.max(1, Math.round(v)); },
 	{ sens: 5, min: 1, max: 50000, format: v => `${Math.round(v)}`, rebuild: true });
+setupPSField("ps-rate", c => c.rate ?? (c.count / Math.max(0.001, c.lifetime)),
+	(c, v) => { c.rate = Math.max(1, v); },
+	{ sens: 2, min: 1, max: 20000, format: v => `${Math.round(v)}`, rebuild: true });
 setupPSField("ps-life", c => c.lifetime, (c, v) => { c.lifetime = Math.max(0.1, v); },
 	{ sens: 0.02, min: 0.1, format: v => v.toFixed(2) });
 setupPSField("ps-size", c => c.size, (c, v) => { c.size = Math.max(0.001, v); },
@@ -2954,6 +3074,8 @@ setupPSField("ps-wx", c => c.wind[0], (c, v) => { c.wind[0] = v; }, { sens: 0.02
 setupPSField("ps-wy", c => c.wind[1], (c, v) => { c.wind[1] = v; }, { sens: 0.02, format: v => v.toFixed(2) });
 setupPSField("ps-wz", c => c.wind[2], (c, v) => { c.wind[2] = v; }, { sens: 0.02, format: v => v.toFixed(2) });
 setupPSField("ps-turb", c => c.turbulence, (c, v) => { c.turbulence = Math.max(0, v); },
+	{ sens: 0.01, min: 0, format: v => v.toFixed(2) });
+setupPSField("ps-noise", c => c.noise || 0, (c, v) => { c.noise = Math.max(0, v); },
 	{ sens: 0.01, min: 0, format: v => v.toFixed(2) });
 
 psColorInput.addEventListener("input", e => {
@@ -2987,6 +3109,19 @@ psEmitterSel.addEventListener("change", () => {
 	if (!c) return;
 	c.emitter = psEmitterSel.value;
 	// Emitter shape bakes into per-particle aInitPos attributes; rebuild the buffers.
+	if (selected?.userData?.primKind === "particles") {
+		rebuildParticleAttributes(selected);
+		updateEmitterHelper(selected);
+	}
+	saveScene?.();
+});
+
+const psDirectionSel = document.getElementById("ps-direction");
+psDirectionSel.addEventListener("change", () => {
+	const c = currentParticleCfg();
+	if (!c) return;
+	c.direction = psDirectionSel.value;
+	// Direction bakes into per-particle initVels — rebuild.
 	if (selected?.userData?.primKind === "particles") rebuildParticleAttributes(selected);
 	saveScene?.();
 });
@@ -3041,6 +3176,7 @@ function refreshParticlesInspector() {
 	psBlendingSel.value = cfg.blending;
 	psStyleSel.value = cfg.style || "soft";
 	psEmitterSel.value = cfg.emitter || "point";
+	psDirectionSel.value = cfg.direction || "directional";
 	const img = cfg.image;
 	if (img) {
 		const url = `/comfyblockout/asset/${encodeURIComponent(NODE_ID)}/${encodeURIComponent(img.assetId)}.${img.ext}`;
@@ -3569,7 +3705,40 @@ function loop() {
 	try {
 		const dt = animClock.getDelta();
 		if (fbxMixers.length) for (const m of fbxMixers) m.update(dt);
-		if (particleSystems.length) tickParticleSystems(dt);
+		// Particles: fresh emitter is hidden (uTime=0 lays out a full flurry via
+		// aLifeOffsets, so idle viewport would show a static cloud). Once the user
+		// hits play the emitter is marked `_hasBeenTicked` and stays visible from
+		// there on — stopping playback pauses the sim in place instead of vanishing
+		// it. Outliner's eye toggle still wins via `_userVisible`. frameCounter > 0
+		// skips the first synchronous loop() call, before `isPlayingPreview` /
+		// `recording` are declared (TDZ from below).
+		if (frameCounter > 0) {
+			// In the editor: particles hide until first play (then pause-in-place).
+			// In the preview node iframe: particles always run + render — the whole
+			// point of the preview is showing what the scene looks like alive.
+			const playing = IS_PREVIEW || isPlayingPreview || recording;
+			if (particleSystems.length) {
+				for (const p of particleSystems) {
+					if (p.userData.primKind !== "particles") continue;
+					const ps = p.userData.particleSystem;
+					// Sync the volume-wireframe helper from Points' pose so scale/rotate
+					// affect both. Hidden in preview + during recording so it doesn't
+					// get baked in as part of the scene render.
+					if (ps?.helperGroup) {
+						ps.helperGroup.position.copy(p.position);
+						ps.helperGroup.quaternion.copy(p.quaternion);
+						ps.helperGroup.scale.copy(p.scale);
+						ps.helperGroup.visible = !IS_PREVIEW && !recording && ps.config.emitter !== "point" && p.userData._userVisible !== false;
+					}
+					if (p.userData._userVisible === false) { p.visible = false; continue; }
+					p.visible = playing || p.userData._hasBeenTicked === true;
+				}
+				if (playing) {
+					tickParticleSystems(dt);
+					for (const p of particleSystems) if (p.userData.primKind === "particles") p.userData._hasBeenTicked = true;
+				}
+			}
+		}
 		tickFlyMovement(dt);
 		orbit.update();
 		if (anchorMode) updatePivotMarker();
