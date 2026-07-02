@@ -891,13 +891,29 @@
 							<option value="sphere">Sphere</option>
 						</select>
 					</div>
-					<div class="select-row" style="margin-top:6px">
-						<select id="ps-direction">
-							<option value="directional">Directional</option>
-							<option value="omni">Omni</option>
-						</select>
+					<div class="hint">Scale the emitter volume with Transform (below). Omni ignores Spread.</div>
+				</div>
+
+				<div class="section" id="obj-particles-transform">
+					<div class="section-label">Transform</div>
+					<div class="sub-label">Position</div>
+					<div class="drag-row">
+						<div class="drag-num" id="obj-px"><span class="drag-label">X</span><span class="drag-val">0.00</span></div>
+						<div class="drag-num" id="obj-py"><span class="drag-label">Y</span><span class="drag-val">0.00</span></div>
+						<div class="drag-num" id="obj-pz"><span class="drag-label">Z</span><span class="drag-val">0.00</span></div>
 					</div>
-					<div class="hint">Use Transform · Scale to resize the emitter volume. Omni ignores Spread.</div>
+					<div class="sub-label" style="margin-top:10px">Rotation</div>
+					<div class="drag-row">
+						<div class="drag-num" id="obj-rx"><span class="drag-label">X</span><span class="drag-val">0°</span></div>
+						<div class="drag-num" id="obj-ry"><span class="drag-label">Y</span><span class="drag-val">0°</span></div>
+						<div class="drag-num" id="obj-rz"><span class="drag-label">Z</span><span class="drag-val">0°</span></div>
+					</div>
+					<div class="sub-label" style="margin-top:10px">Scale</div>
+					<div class="drag-row">
+						<div class="drag-num" id="obj-sx"><span class="drag-label">X</span><span class="drag-val">1.00</span></div>
+						<div class="drag-num" id="obj-sy"><span class="drag-label">Y</span><span class="drag-val">1.00</span></div>
+						<div class="drag-num" id="obj-sz"><span class="drag-label">Z</span><span class="drag-val">1.00</span></div>
+					</div>
 				</div>
 
 				<div class="section" id="obj-particles-section" hidden>
@@ -939,6 +955,12 @@
 
 				<div class="section" id="obj-particles-emission" hidden>
 					<div class="section-label">Emission</div>
+					<div class="select-row" style="margin-bottom:6px">
+						<select id="ps-direction">
+							<option value="directional">Directional</option>
+							<option value="omni">Omni</option>
+						</select>
+					</div>
 					<div class="drag-row">
 						<div class="drag-num" id="ps-count" style="flex:1"><span class="drag-label">Count</span><span class="drag-val">1000</span></div>
 						<div class="drag-num" id="ps-rate" style="flex:1"><span class="drag-label">Rate</span><span class="drag-val">500</span></div>
@@ -969,28 +991,6 @@
 					<div class="drag-row">
 						<div class="drag-num" id="ps-turb"><span class="drag-label">Turbulence</span><span class="drag-val">0.00</span></div>
 						<div class="drag-num" id="ps-noise"><span class="drag-label">Noise</span><span class="drag-val">0.00</span></div>
-					</div>
-				</div>
-
-				<div class="section">
-					<div class="section-label">Transform</div>
-					<div class="sub-label">Position</div>
-					<div class="drag-row">
-						<div class="drag-num" id="obj-px"><span class="drag-label">X</span><span class="drag-val">0.00</span></div>
-						<div class="drag-num" id="obj-py"><span class="drag-label">Y</span><span class="drag-val">0.00</span></div>
-						<div class="drag-num" id="obj-pz"><span class="drag-label">Z</span><span class="drag-val">0.00</span></div>
-					</div>
-					<div class="sub-label" style="margin-top:10px">Rotation</div>
-					<div class="drag-row">
-						<div class="drag-num" id="obj-rx"><span class="drag-label">X</span><span class="drag-val">0°</span></div>
-						<div class="drag-num" id="obj-ry"><span class="drag-label">Y</span><span class="drag-val">0°</span></div>
-						<div class="drag-num" id="obj-rz"><span class="drag-label">Z</span><span class="drag-val">0°</span></div>
-					</div>
-					<div class="sub-label" style="margin-top:10px">Scale</div>
-					<div class="drag-row">
-						<div class="drag-num" id="obj-sx"><span class="drag-label">X</span><span class="drag-val">1.00</span></div>
-						<div class="drag-num" id="obj-sy"><span class="drag-label">Y</span><span class="drag-val">1.00</span></div>
-						<div class="drag-num" id="obj-sz"><span class="drag-label">Z</span><span class="drag-val">1.00</span></div>
 					</div>
 				</div>
 			</div>
@@ -5254,9 +5254,6 @@ function applyLightSync(state) {
 			// Emitter shape / count changes bake into the geometry buffers.
 			rebuildParticleAttributes(obj);
 			syncParticleUniforms(obj);
-			if (pp.position) obj.position.fromArray(pp.position);
-			if (pp.rotation) obj.rotation.set(pp.rotation[0], pp.rotation[1], pp.rotation[2]);
-			if (pp.scale) obj.scale.fromArray(pp.scale);
 		}
 	}
 }
