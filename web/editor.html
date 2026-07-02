@@ -3713,10 +3713,11 @@ function loop() {
 		// skips the first synchronous loop() call, before `isPlayingPreview` /
 		// `recording` are declared (TDZ from below).
 		if (frameCounter > 0) {
-			// In the editor: particles hide until first play (then pause-in-place).
-			// In the preview node iframe: particles always run + render — the whole
-			// point of the preview is showing what the scene looks like alive.
-			const playing = IS_PREVIEW || isPlayingPreview || recording;
+			// Particles hide until first play, then pause-in-place on stop. Preview
+			// iframe mirrors editor's isPlayingPreview via the play-state postMessage
+			// bridge (see broadcastPlayState / comfyblockout.js playStateForwarder),
+			// so both viewports render identically at every playhead position.
+			const playing = isPlayingPreview || recording;
 			if (particleSystems.length) {
 				for (const p of particleSystems) {
 					if (p.userData.primKind !== "particles") continue;
@@ -3759,6 +3760,7 @@ loop();
 // ── Keyframes / timeline ──────────────────────────────────────────
 let keyframes = [];
 let playhead = 0;
+let _playheadInbound = false; // gate to break the postMessage ping-pong loop
 // Set so Shift-click can multi-select keyframes (apply ease to a batch).
 const selectedKeys = new Set();
 // WeakSet of keys just created — used to fire a one-shot flash animation on their
@@ -4119,11 +4121,39 @@ function setPlayhead(t) {
 	const pvPh = document.getElementById("pv-playhead");
 	if (pvPh) pvPh.style.left = `${playhead * 100}%`;
 	const dur = currentDuration();
-	tlTime.textContent = `${(playhead * dur).toFixed(2)}s / ${dur.toFixed(2)}s`;
+	// The playhead is offset by `trimGap` so its diamond doesn't kiss the trim
+	// handles. In the readout, snap the last few gap-widths back so "at the start"
+	// shows 0.00s and "at the end" shows `dur` — matches user expectation.
+	const gap = trimGap();
+	const displayNorm = playhead <= trimStart + gap * 1.5
+		? trimStart
+		: (playhead >= trimEnd - gap * 1.5 ? trimEnd : playhead);
+	tlTime.textContent = `${(displayNorm * dur).toFixed(2)}s / ${dur.toFixed(2)}s`;
+	// Broadcast the raw playhead to the sibling iframe — light message that skips
+	// the full serializeScene pipeline, so the two transports track each other in
+	// real time (not on the 600ms save-debounce). `_playheadInbound` gate prevents
+	// ping-pong when THIS setPlayhead call was itself triggered by a remote message.
+	if (!_playheadInbound) {
+		try {
+			window.parent?.postMessage({
+				source: "comfy3d-" + (IS_PREVIEW ? "preview" : "editor"),
+				type: "playhead-sync",
+				node_id: NODE_ID,
+				playhead,
+			}, "*");
+		} catch {}
+	}
 	// Animated objects (with their own keyframes) follow the playhead automatically.
 	// No-op for objects without keys, so this is free for static scenes.
 	applyObjectsAt(playhead);
 	refreshPlayheadActiveOnKeys();
+	// Persist manual scrubs so closing the editor lands on the same frame later.
+	// Skipped during playback (saveScene runs on stop instead) and during scene
+	// restore. try/catch swallows the boot-time TDZ on saveSceneDebounced/recording
+	// (both declared later in the file) — the boot call intentionally no-ops.
+	try {
+		if (!isPlayingPreview && !recording && !restoringScene) saveSceneDebounced();
+	} catch {}
 }
 
 function sampleCameraAt(t) {
@@ -4553,10 +4583,11 @@ function setMixersPlaying(playing) {
 	for (const m of fbxMixers) m.timeScale = playing ? 1 : 0;
 }
 
-async function playPreview() {
+async function playPreview({ silent = false } = {}) {
 	if (isPlayingPreview) return;
 	const hasCameraTween = keyframes.length >= 2;
 	isPlayingPreview = true;
+	if (!silent) broadcastPlayState(true);
 	tlPlay.classList.add("active");
 	const dur = currentDuration() * 1000;
 	// Inset the play range by the same visual gap used for the resting playhead so the
@@ -4593,12 +4624,32 @@ async function playPreview() {
 		await new Promise(r => requestAnimationFrame(r));
 	}
 	isPlayingPreview = false;
+	if (!silent) broadcastPlayState(false);
 	tlPlay.classList.remove("active");
 	setMixersPlaying(false);
+	// Persist playhead so closing + reopening the editor lands on the pause frame.
+	saveSceneDebounced?.();
 }
-function stopPreview() {
+function stopPreview({ silent = false } = {}) {
 	isPlayingPreview = false;
+	if (!silent) broadcastPlayState(false);
 	setMixersPlaying(false);
+	saveSceneDebounced?.();
+}
+
+// Broadcast play/pause state (and the current playhead) so the sibling iframe
+// resumes from the same frame. Both sides run their own local playback loop after
+// this; drift stays bounded by performance.now() being roughly aligned across iframes.
+function broadcastPlayState(playing) {
+	try {
+		window.parent?.postMessage({
+			source: "comfy3d-" + (IS_PREVIEW ? "preview" : "editor"),
+			type: "play-state",
+			node_id: NODE_ID,
+			playing,
+			playhead,
+		}, "*");
+	} catch {}
 }
 
 tlPlay.addEventListener("click", () => isPlayingPreview ? stopPreview() : playPreview());
@@ -4903,6 +4954,7 @@ function serializeScene() {
 			ar: arVisible,
 		},
 		trim: { start: trimStart, end: trimEnd },
+		playhead,
 		keyframes: keyframes.map(k => ({
 			t: k.t,
 			pos: k.pos.toArray(),
@@ -5050,6 +5102,13 @@ async function deserializeScene(state, opts = {}) {
 		trimStart = Math.max(0, Math.min(1, state.trim.start));
 		trimEnd = Math.max(trimStart + 0.01, Math.min(1, state.trim.end));
 		refreshTrimUI();
+	}
+	// Playhead restore runs OUTSIDE the trim block — otherwise a scene saved
+	// without trim (older format) would silently drop the playhead. Fall back
+	// to trimStart when no saved value.
+	if (typeof state.playhead === "number") {
+		setPlayhead(clampPlayheadToTrim(Math.max(0, Math.min(1, state.playhead))));
+	} else if (state.trim) {
 		setPlayhead(clampPlayheadToTrim(trimStart));
 	}
 
@@ -5073,9 +5132,10 @@ async function deserializeScene(state, opts = {}) {
 		if (found) select(found);
 	}
 	refreshOutliner();
-	// Always clamp the playhead into the trim region with the gap so the yellow line never
-	// sits directly on top of an orange trim handle at scene start
-	setPlayhead(clampPlayheadToTrim(trimStart));
+	// Clamp the playhead into the trim region — but preserve a restored value from
+	// state.playhead (set earlier in this function). Falling through to trimStart
+	// unconditionally would clobber the pause frame the user closed on.
+	if (typeof state.playhead !== "number") setPlayhead(clampPlayheadToTrim(trimStart));
 	return true;
 	} finally {
 		restoringScene = false;
@@ -5153,6 +5213,11 @@ function applyLightSync(state) {
 		trimEnd = Math.max(trimStart + 0.01, Math.min(1, state.trim.end));
 		refreshTrimUI();
 	}
+	// Mirror the sender's playhead so the preview iframe (or the editor, if the
+	// preview ever regains one) shows the same frame while paused.
+	if (typeof state.playhead === "number") {
+		setPlayhead(clampPlayheadToTrim(Math.max(0, Math.min(1, state.playhead))));
+	}
 	// Keyframes are cheap (positions + tween hints) — no asset fetches, so light sync
 	// can swap them in too. Without this the preview's mini-timeline doesn't show
 	// new diamonds until editor close triggered __c3dRefresh.
@@ -5200,6 +5265,39 @@ window.addEventListener("message", async (ev) => {
 	if (String(ev.data.node_id) !== NODE_ID) return;
 	if (!ev.data.scene) return;
 	try { applyLightSync(ev.data.scene); } catch {}
+});
+
+// Play-state relay from the sibling iframe — editor toggling ▶ propagates to preview
+// and preview toggling ▶ propagates to editor. Each side runs its OWN playback loop
+// (its own clock) so playback stays smooth per-side; playhead stays in sync via the
+// per-frame scene-sync mirror. `silent: true` skips the outgoing broadcast so the two
+// sides don't ping-pong.
+window.addEventListener("message", (ev) => {
+	if (!ev.data || ev.data.type !== "play-state") return;
+	if (ev.data.source !== "comfy3d-parent-sync") return;
+	if (String(ev.data.node_id) !== NODE_ID) return;
+	if (typeof ev.data.playing !== "boolean") return;
+	if (isPlayingPreview === ev.data.playing) return;
+	// Snap to the sender's playhead so both sides resume from the same frame.
+	if (typeof ev.data.playhead === "number") {
+		_playheadInbound = true;
+		try { setPlayhead(ev.data.playhead); } finally { _playheadInbound = false; }
+	}
+	if (ev.data.playing) playPreview({ silent: true });
+	else stopPreview({ silent: true });
+});
+
+// Real-time playhead mirror — bypasses the 600ms saveScene debounce so the two
+// transports track each other frame-by-frame during scrubs / playback. The
+// `_playheadInbound` gate stops the receiving side from re-broadcasting.
+window.addEventListener("message", (ev) => {
+	if (!ev.data || ev.data.type !== "playhead-sync") return;
+	if (ev.data.source !== "comfy3d-parent-sync") return;
+	if (String(ev.data.node_id) !== NODE_ID) return;
+	if (typeof ev.data.playhead !== "number") return;
+	if (Math.abs(ev.data.playhead - playhead) < 1e-4) return;
+	_playheadInbound = true;
+	try { setPlayhead(ev.data.playhead); } finally { _playheadInbound = false; }
 });
 
 // Exposed so deserializeScene can cancel a queued save mid-restore — otherwise the
@@ -5985,6 +6083,18 @@ if (IS_PREVIEW) {
 		const onUp = () => {
 			window.removeEventListener("pointermove", drag);
 			window.removeEventListener("pointerup", onUp);
+			// Flush the playhead to disk immediately (bypass the 600ms debounce) so
+			// opening the modal editor right after a scrub lands on the same frame.
+			// sendBeacon is synchronous-ordered against the follow-up navigation —
+			// unlike fetch, which the editor's GET can race and win.
+			try { cancelPendingSave?.(); } catch {}
+			try {
+				const blob = new Blob(
+					[JSON.stringify({ node_id: NODE_ID, scene: serializeScene() })],
+					{ type: "application/json" },
+				);
+				navigator.sendBeacon?.("/comfyblockout/save_scene", blob);
+			} catch {}
 		};
 		window.addEventListener("pointermove", drag);
 		window.addEventListener("pointerup", onUp);
@@ -5992,7 +6102,13 @@ if (IS_PREVIEW) {
 	const pvPlayIcon = pvPlay.querySelector(".pv-icon");
 	setInterval(() => {
 		const dur = currentDuration();
-		const t = playhead * dur;
+		// Snap the last few gap-widths of trim padding so the readout hits 0 / dur
+		// at the ends instead of showing e.g. 0.04s at the start.
+		const gap = trimGap();
+		const displayNorm = playhead <= trimStart + gap * 1.5
+			? trimStart
+			: (playhead >= trimEnd - gap * 1.5 ? trimEnd : playhead);
+		const t = displayNorm * dur;
 		const durStr = Number.isInteger(dur) ? `${dur}s` : `${dur.toFixed(1)}s`;
 		pvTime.textContent = `${t.toFixed(2)}s / ${durStr}`;
 		const want = `/extensions/ComfyBlockout/icons/${isPlayingPreview ? "pause" : "play"}.svg`;

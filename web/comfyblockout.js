@@ -316,6 +316,11 @@ function openEditor(node) {
         try { existing.iframe.contentWindow?.focus(); } catch {}
         return;
     }
+    // Flush any pending preview edits (e.g. scrubbed playhead) to disk BEFORE the
+    // editor iframe loads — otherwise it GETs /load_scene with stale state and
+    // lands on the wrong frame. postMessage → sendBeacon inside the preview is
+    // reliable across the same-tick fetch race.
+    try { node.__c3dGetPreviewFrame?.()?.contentWindow?.postMessage({ source: "comfy3d-parent", type: "flush-save" }, "*"); } catch {}
     const url = `${EDITOR_URL}?node_id=${encodeURIComponent(nodeId)}&t=${Date.now()}`;
 
     const modal = document.createElement("div");
@@ -527,6 +532,45 @@ app.registerExtension({
             }, "*");
         };
         window.addEventListener("message", syncForwarder);
+
+        // Play-state forwarder: editor ▶/■ hits the sibling iframe so preview mirrors
+        // it in real time (particles + FBX mixers gate on isPlayingPreview). Only
+        // relays across iframes; each side runs its own clock so playback stays smooth.
+        const playStateForwarder = (ev) => {
+            if (!ev.data || ev.data.type !== "play-state") return;
+            if (ev.data.source !== "comfy3d-editor" && ev.data.source !== "comfy3d-preview") return;
+            if (String(ev.data.node_id) !== ui.nodeId) return;
+            const target = ev.data.source === "comfy3d-editor"
+                ? ui.previewFrame
+                : node.__c3dEditorIframe;
+            target?.contentWindow?.postMessage({
+                source: "comfy3d-parent-sync",
+                type: "play-state",
+                node_id: ev.data.node_id,
+                playing: ev.data.playing,
+                playhead: ev.data.playhead,
+            }, "*");
+        };
+        window.addEventListener("message", playStateForwarder);
+
+        // Playhead-sync forwarder: real-time scrub position mirror between the
+        // editor iframe and the preview iframe. Fires per setPlayhead call (no
+        // 600ms save debounce), so the two transports track each other frame-by-frame.
+        const playheadSyncForwarder = (ev) => {
+            if (!ev.data || ev.data.type !== "playhead-sync") return;
+            if (ev.data.source !== "comfy3d-editor" && ev.data.source !== "comfy3d-preview") return;
+            if (String(ev.data.node_id) !== ui.nodeId) return;
+            const target = ev.data.source === "comfy3d-editor"
+                ? ui.previewFrame
+                : node.__c3dEditorIframe;
+            target?.contentWindow?.postMessage({
+                source: "comfy3d-parent-sync",
+                type: "playhead-sync",
+                node_id: ev.data.node_id,
+                playhead: ev.data.playhead,
+            }, "*");
+        };
+        window.addEventListener("message", playheadSyncForwarder);
 
         // Preview-refresh: editor asks the parent to fully rebuild the in-node iframe
         // from disk. Used after destructive operations (Open Project, etc.) where live
